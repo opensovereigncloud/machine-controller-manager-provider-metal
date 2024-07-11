@@ -1,5 +1,5 @@
 # machine-controller-manager-provider-metal
-=======
+
 [![REUSE status](https://api.reuse.software/badge/github.com/ironcore-dev/machine-controller-manager-provider-metal)](https://api.reuse.software/info/github.com/ironcore-dev/machine-controller-manager-provider-metal)
 [![Go Report Card](https://goreportcard.com/badge/github.com/ironcore-dev/machine-controller-manager-provider-metal)](https://goreportcard.com/report/github.com/ironcore-dev/machine-controller-manager-provider-metal)
 [![GitHub License](https://img.shields.io/static/v1?label=License&message=Apache-2.0&color=blue)](LICENSE)
