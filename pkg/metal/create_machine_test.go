@@ -74,15 +74,9 @@ var _ = Describe("CreateMachine", func() {
 			HaveField("Spec.Power", metalv1alpha1.PowerOn),
 			HaveField("Spec.ServerSelector", &metav1.LabelSelector{
 				MatchLabels: map[string]string{
-					"instance-type": "foo",
+					"instance-type": "bar",
 				}}),
 			//	Power: "On",
-			//	ServerSelector: &metav1.LabelSelector{
-			//	MatchLabels: map[string]string{
-			//		"instance-type": req.MachineClass.NodeTemplate.InstanceType,
-			//	},
-			//	MatchExpressions: nil,
-			//},
 			//	IgnitionSecretRef: &corev1.LocalObjectReference{Name: ignitionSecret.Name},
 			//	Image:             providerSpec.Image,
 		))
