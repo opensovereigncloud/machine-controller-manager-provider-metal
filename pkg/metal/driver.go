@@ -12,6 +12,8 @@ import (
 	"github.com/gardener/machine-controller-manager/pkg/util/provider/machinecodes/status"
 	apiv1alpha1 "github.com/ironcore-dev/machine-controller-manager-provider-metal/pkg/api/v1alpha1"
 	metalv1alpha1 "github.com/ironcore-dev/metal-operator/api/v1alpha1"
+	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -54,8 +56,13 @@ func (d *metalDriver) GenerateMachineClassForMigration(_ context.Context, _ *dri
 	return &driver.GenerateMachineClassForMigrationResponse{}, nil
 }
 
-func getIgnitionNameForMachine(machineName string) string {
-	return fmt.Sprintf("%s-%s", machineName, "ignition")
+func (d *metalDriver) getIgnitionNameForMachine(ctx context.Context, machineName string) string {
+	//for backward compatibility checking if ignition secret was already present with old naming convention
+	ignitionSecretName := fmt.Sprintf("%s-%s", machineName, "ignition")
+	if err := d.metalClient.Get(ctx, client.ObjectKey{Name: ignitionSecretName, Namespace: d.metalNamespace}, &corev1.Secret{}); apierrors.IsNotFound(err) {
+		return machineName
+	}
+	return ignitionSecretName
 }
 
 func getProviderIDForServerClaim(serverClaim *metalv1alpha1.ServerClaim) string {

@@ -85,7 +85,7 @@ func (d *metalDriver) applyServerClaim(ctx context.Context, req *driver.CreateMa
 			Kind:       "Secret",
 		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      getIgnitionNameForMachine(req.Machine.Name),
+			Name:      d.getIgnitionNameForMachine(ctx, req.Machine.Name),
 			Namespace: d.metalNamespace,
 		},
 		Data: ignitionData,
@@ -113,7 +113,7 @@ func (d *metalDriver) applyServerClaim(ctx context.Context, req *driver.CreateMa
 	}
 
 	if err := d.metalClient.Patch(ctx, serverClaim, client.Apply, fieldOwner, client.ForceOwnership); err != nil {
-		return nil, status.Error(codes.Internal, fmt.Sprintf("error applying ironcore machine: %s", err.Error()))
+		return nil, status.Error(codes.Internal, fmt.Sprintf("error applying metal machine: %s", err.Error()))
 	}
 
 	if err := d.metalClient.Patch(ctx, ignitionSecret, client.Apply, fieldOwner, client.ForceOwnership); err != nil {
