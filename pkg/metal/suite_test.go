@@ -115,7 +115,7 @@ func SetupTest() (*corev1.Namespace, *corev1.Secret, *driver.Driver) {
 		Expect(k8sClient.Create(ctx, ns)).To(Succeed(), "failed to create test namespace")
 		DeferCleanup(k8sClient.Delete, ns)
 
-		// create kubeconfig which we will use as the provider secret to create our ironcore machine
+		// create kubeconfig which we will use as the provider secret to create our metal machine
 		user, err := testEnv.AddUser(envtest.User{
 			Name:   "dummy",
 			Groups: []string{"system:authenticated", "system:masters"},
