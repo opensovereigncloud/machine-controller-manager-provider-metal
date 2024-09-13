@@ -36,14 +36,14 @@ type metalDriver struct {
 }
 
 func (d *metalDriver) InitializeMachine(ctx context.Context, request *driver.InitializeMachineRequest) (*driver.InitializeMachineResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "IronCore Provider does not yet implement InitializeMachine")
+	return nil, status.Error(codes.Unimplemented, "Metal Provider does not yet implement InitializeMachine")
 }
 
 func (d *metalDriver) GetVolumeIDs(_ context.Context, req *driver.GetVolumeIDsRequest) (*driver.GetVolumeIDsResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "IronCore Provider does not yet implement GetVolumeIDs")
+	return nil, status.Error(codes.Unimplemented, "Metal Provider does not yet implement GetVolumeIDs")
 }
 
-// NewDriver returns a new Gardener ironcore driver object
+// NewDriver returns a new Gardener metal driver object
 func NewDriver(c client.Client, namespace, csiDriverName string) driver.Driver {
 	return &metalDriver{
 		metalClient:    c,
