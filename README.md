@@ -1,7 +1,7 @@
-# machine-controller-manager-provider-metal
+# machine-controller-manager-provider-ironcore-metal
 
-[![REUSE status](https://api.reuse.software/badge/github.com/ironcore-dev/machine-controller-manager-provider-metal)](https://api.reuse.software/info/github.com/ironcore-dev/machine-controller-manager-provider-metal)
-[![Go Report Card](https://goreportcard.com/badge/github.com/ironcore-dev/machine-controller-manager-provider-metal)](https://goreportcard.com/report/github.com/ironcore-dev/machine-controller-manager-provider-metal)
+[![REUSE status](https://api.reuse.software/badge/github.com/ironcore-dev/machine-controller-manager-provider-ironcore-metal)](https://api.reuse.software/info/github.com/ironcore-dev/machine-controller-manager-provider-ironcore-metal)
+[![Go Report Card](https://goreportcard.com/badge/github.com/ironcore-dev/machine-controller-manager-provider-ironcore-metal)](https://goreportcard.com/report/github.com/ironcore-dev/machine-controller-manager-provider-ironcore-metal)
 [![GitHub License](https://img.shields.io/static/v1?label=License&message=Apache-2.0&color=blue)](LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://makeapullrequest.com)
 
@@ -26,7 +26,7 @@ Following are the basic principles kept in mind while developing the external pl
 
 1. Open terminal pointing to `$GOPATH/src/github.com/gardener`. Clone this repository.
 
-2. Navigate to `$GOPATH/src/github.com/ironcore-dev/machine-controller-manager-provider-metal`.
+2. Navigate to `$GOPATH/src/github.com/ironcore-dev/machine-controller-manager-provider-ironcore-metal`.
     - In the `MAKEFILE` make sure `$TARGET_KUBECONFIG` points to the cluster where you wish to manage machines. `$CONTROL_NAMESPACE` represents the namespaces where MCM is looking for machine CR objects, and `$CONTROL_KUBECONFIG` points to the cluster which holds these machine CRs.
     - Run the machine controller (driver) using the command below.
         ```bash
@@ -49,7 +49,7 @@ Following are the basic principles kept in mind while developing the external pl
         ```bash
         make start
         ```
-4. On the third terminal pointing to `$GOPATH/src/github.com/gardener/machine-controller-manager-provider-metal`
+4. On the third terminal pointing to `$GOPATH/src/github.com/gardener/machine-controller-manager-provider-ironcore-metal`
     - Fill in the object files given below and deploy them as described below.
     - Deploy the `machine-class`
         ```bash

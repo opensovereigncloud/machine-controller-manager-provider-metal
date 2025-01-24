@@ -7,8 +7,8 @@ import (
 	"fmt"
 
 	"github.com/gardener/machine-controller-manager/pkg/util/provider/driver"
-	"github.com/ironcore-dev/machine-controller-manager-provider-metal/pkg/api/v1alpha1"
-	"github.com/ironcore-dev/machine-controller-manager-provider-metal/pkg/metal/testing"
+	"github.com/ironcore-dev/machine-controller-manager-provider-ironcore-metal/pkg/api/v1alpha1"
+	"github.com/ironcore-dev/machine-controller-manager-provider-ironcore-metal/pkg/metal/testing"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )

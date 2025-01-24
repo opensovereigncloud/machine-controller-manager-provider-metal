@@ -52,7 +52,7 @@ spec:
             - --machine-safety-orphan-vms-period=30m # Optional Parameter - Default value 30mins - Time period (in time) used to poll for orphan VMs by safety controller.
             - --node-conditions=ReadonlyFilesystem,KernelDeadlock,DiskPressure # List of comma-separated/case-sensitive node-conditions which when set to True will change machine to a failed state after MachineHealthTimeout duration. It may further be replaced with a new machine if the machine is backed by a machine-set object.
             - --v=3
-          image: ghcr.io/ironcore-dev/machine-controller-manager-provider-metal:latest
+          image: ghcr.io/ironcore-dev/machine-controller-manager-provider-ironcore-metal:latest
           imagePullPolicy: IfNotPresent
           livenessProbe:
             failureThreshold: 3

@@ -1,7 +1,7 @@
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
-Upstream-Name: machine-controller-manager-provider-metal
+Upstream-Name: machine-controller-manager-provider-ironcore-metal
 Upstream-Contact: IronCore authors <ospo@sap.com>
-Source: https://github.com/ironcore-dev/machine-controller-manager-provider-metal
+Source: https://github.com/ironcore-dev/machine-controller-manager-provider-ironcore-metal
 
 # --------------------------------------------------
 # source code
