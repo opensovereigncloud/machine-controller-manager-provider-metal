@@ -1,4 +1,4 @@
-module github.com/ironcore-dev/machine-controller-manager-provider-metal
+module github.com/ironcore-dev/machine-controller-manager-provider-ironcore-metal
 
 go 1.22.5
 
