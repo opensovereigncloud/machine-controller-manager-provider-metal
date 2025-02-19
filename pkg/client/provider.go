@@ -6,7 +6,6 @@ package client
 import (
 	"context"
 	"fmt"
-	"log"
 	"os"
 	"path"
 	"sync"
@@ -19,6 +18,7 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/scale/scheme"
 	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/klog"
 	capiv1beta1 "sigs.k8s.io/cluster-api/exp/ipam/api/v1beta1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -38,6 +38,7 @@ func NewProviderAndNamespace(ctx context.Context, kubeconfigPath string) (*Provi
 	utilruntime.Must(ipamv1alpha1.AddToScheme(cp.s))
 	utilruntime.Must(capiv1beta1.AddToScheme(cp.s))
 
+	klog.Infof("NewProviderAndNamespace(%s)", kubeconfigPath)
 	if err := cp.reloadMetalClientOnConfigChange(ctx); err != nil {
 		return nil, "", err
 	}
@@ -112,29 +113,37 @@ func (p *Provider) reloadMetalClientOnConfigChange(ctx context.Context) error {
 		watcher.Close()
 		return fmt.Errorf("unable to add kubeconfig \"%s\" to watcher: %v", p.kubeconfigPath, err)
 	}
+	klog.Infof("watching %s", path.Dir(p.kubeconfigPath))
 	go func() {
-		defer watcher.Close()
+		defer func() {
+			watcher.Close()
+			klog.Infof("watcher loop ended")
+		}()
+		klog.Infof("watcher loop started")
 		for {
 			select {
 			case err := <-watcher.Errors:
-				log.Fatalf("watcher returned an error: %v", err)
+				klog.Fatalf("watcher returned an error: %v", err)
 			case event := <-watcher.Events:
+				klog.Infof("event: %s", event.String())
 				if event.Name != p.kubeconfigPath {
 					continue
 				}
 
 				clientConfig, err := p.getClientConfig()
 				if err != nil {
-					log.Printf("couldn't get client config when config changed: %v", err)
+					klog.Infof("couldn't get client config when config changed: %v", err)
 					continue
 				}
 				if err := p.setMetalClient(clientConfig); err != nil {
-					log.Printf("couldn't update metal client when config changed: %v", err)
+					klog.Infof("couldn't update metal client when config changed: %v", err)
 				}
+				klog.Infof("change of kubeconfig was handled successfully")
 			case <-ctx.Done():
 				return
 			}
 		}
 	}()
+	klog.Info("reloadMetalClientOnConfigChange finished successfully")
 	return nil
 }
