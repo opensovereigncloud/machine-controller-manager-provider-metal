@@ -17,7 +17,6 @@ import (
 	"github.com/spf13/pflag"
 	"k8s.io/component-base/cli/flag"
 	"k8s.io/component-base/logs"
-	logsv1 "k8s.io/component-base/logs/api/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 )
 
@@ -30,18 +29,12 @@ func main() {
 	s := mcmoptions.NewMCServer()
 	s.AddFlags(pflag.CommandLine)
 
-	options := logs.NewOptions()
 	logs.AddFlags(pflag.CommandLine)
 	AddExtraFlags(pflag.CommandLine)
 
 	flag.InitFlags()
 	logs.InitLogs()
 	defer logs.FlushLogs()
-
-	if err := logsv1.ValidateAndApply(options, nil); err != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "%v\n", err)
-		os.Exit(1)
-	}
 
 	clientProvider, namespace, err := mcmclient.NewProviderAndNamespace(ctrl.SetupSignalHandler(), KubeconfigPath)
 	if err != nil {
