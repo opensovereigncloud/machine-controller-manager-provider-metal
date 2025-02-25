@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"path/filepath"
 	"sync"
 
 	"github.com/fsnotify/fsnotify"
@@ -113,21 +114,28 @@ func (p *Provider) reloadMetalClientOnConfigChange(ctx context.Context) error {
 		watcher.Close()
 		return fmt.Errorf("unable to add kubeconfig \"%s\" to watcher: %v", p.kubeconfigPath, err)
 	}
+
+	// Because kubeconfig is mounted from a secret and updated by kubernetes it is a symbolic link and
+	// there will be no events with kubeconfig name. So we need to check if a target file has changed.
+	targetKubeconfigPath, _ := filepath.EvalSymlinks(p.kubeconfigPath)
 	go func() {
 		defer func() {
 			watcher.Close()
 			klog.V(3).Infof("watcher loop ended for %s", path.Dir(p.kubeconfigPath))
 		}()
 		klog.V(3).Infof("watcher loop started for %s", path.Dir(p.kubeconfigPath))
+
 		for {
 			select {
 			case err := <-watcher.Errors:
 				klog.Fatalf("watcher returned an error: %v", err)
 			case event := <-watcher.Events:
 				klog.V(3).Infof("event: %s", event.String())
-				if event.Name != p.kubeconfigPath {
+				newTargetKubeconfigPath, _ := filepath.EvalSymlinks(p.kubeconfigPath)
+				if newTargetKubeconfigPath == targetKubeconfigPath {
 					continue
 				}
+				targetKubeconfigPath = newTargetKubeconfigPath
 
 				clientConfig, err := p.getClientConfig()
 				if err != nil {
