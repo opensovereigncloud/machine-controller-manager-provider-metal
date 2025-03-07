@@ -6,6 +6,7 @@ package metal
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	ipamv1alpha1 "github.com/ironcore-dev/ipam/api/ipam/v1alpha1"
@@ -63,6 +64,9 @@ func (d *metalDriver) DeleteMachine(ctx context.Context, req *driver.DeleteMachi
 
 	for _, ip := range ips {
 		if err := metalClient.Delete(ctx, ip); client.IgnoreNotFound(err) != nil {
+			if strings.Contains(err.Error(), "no matches for kind") {
+				continue
+			}
 			// Unknown leads to short retry in machine controller
 			return nil, status.Error(codes.Unknown, fmt.Sprintf("error deleting ip resource: %s", err.Error()))
 		}
