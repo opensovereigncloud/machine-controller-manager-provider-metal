@@ -17,6 +17,7 @@ import (
 	metalv1alpha1 "github.com/ironcore-dev/metal-operator/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	meta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
@@ -62,7 +63,12 @@ func (d *metalDriver) DeleteMachine(ctx context.Context, req *driver.DeleteMachi
 	}
 
 	for _, ip := range ips {
-		if err := metalClient.Delete(ctx, ip); client.IgnoreNotFound(err) != nil {
+		err := metalClient.Delete(ctx, ip)
+		if meta.IsNoMatchError(err) {
+			klog.Warningf("Kind %s for IP with name %s not found, assuming IP object for that kind is abscent", ip.GetObjectKind().GroupVersionKind().Kind, ipMeta.Name)
+			continue
+		}
+		if client.IgnoreNotFound(err) != nil {
 			// Unknown leads to short retry in machine controller
 			return nil, status.Error(codes.Unknown, fmt.Sprintf("error deleting ip resource: %s", err.Error()))
 		}
