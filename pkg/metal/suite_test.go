@@ -199,3 +199,49 @@ func newMachineClass(providerName string, providerSpec map[string]interface{}) *
 		},
 	}
 }
+
+func addIPRef(ctx SpecContext, machineName, ns, metadataKey string, providerSpec map[string]interface{}) []client.Object {
+	ipAddress := &capiv1beta1.IPAddress{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      fmt.Sprintf("%s-address", metadataKey),
+			Namespace: ns,
+		},
+		Spec: capiv1beta1.IPAddressSpec{
+			Address: "10.11.12.13",
+			Prefix:  24,
+			Gateway: "10.11.12.1",
+		},
+	}
+	ipAddressClaimName := fmt.Sprintf("%s-%s", machineName, metadataKey)
+	ipAddressClaim := &capiv1beta1.IPAddressClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      ipAddressClaimName,
+			Namespace: ns,
+		},
+	}
+
+	Expect(k8sClient.Create(ctx, ipAddress)).To(Succeed())
+	Expect(k8sClient.Create(ctx, ipAddressClaim)).To(Succeed())
+	Eventually(func() error {
+		if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(ipAddressClaim), ipAddressClaim); err != nil {
+			return err
+		}
+		ipAddressClaim.Status.AddressRef.Name = ipAddress.Name
+		return k8sClient.Status().Update(ctx, ipAddressClaim)
+	}).Should(Succeed())
+
+	ipamConfig := map[string]interface{}{
+		"metadataKey": metadataKey,
+		"ipamRef": map[string]interface{}{
+			"name":     ipAddressClaimName,
+			"apiGroup": "ipam.cluster.x-k8s.io",
+			"kind":     "GlobalInClusterIPPool",
+		}}
+	if providerSpec["ipamConfig"] != nil {
+		providerSpec["ipamConfig"] = append(providerSpec["ipamConfig"].([]map[string]interface{}), ipamConfig)
+	} else {
+		providerSpec["ipamConfig"] = []map[string]interface{}{ipamConfig}
+	}
+
+	return []client.Object{ipAddress, ipAddressClaim}
+}
