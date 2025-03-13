@@ -17,6 +17,7 @@ import (
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	. "sigs.k8s.io/controller-runtime/pkg/envtest/komega"
 )
 
@@ -113,12 +114,23 @@ var _ = Describe("CreateMachine", func() {
 	})
 
 	When("capi ipam references are present in ipamConfig", func() {
-		It("should create an ignition with ips", func(ctx SpecContext) {
+		It("should create ip claims and an ignition with ips", func(ctx SpecContext) {
 			machineName := "machine-0"
 			sampleProviderSpec := maps.Clone(testing.SampleProviderSpec)
 			delete(sampleProviderSpec, "metaData")
-			objToDelete := addIPRef(ctx, machineName, ns.Name, "pool-a", sampleProviderSpec)
-			objToDelete = append(objToDelete, addIPRef(ctx, machineName, ns.Name, "pool-b", sampleProviderSpec)...)
+
+			objToDelete := []client.Object{}
+			for _, pool := range []string{"pool-a", "pool-b"} {
+				ip, ipClaim := newIPRef(machineName, ns.Name, pool, sampleProviderSpec)
+				Expect(k8sClient.Create(ctx, ip)).To(Succeed())
+				go func() {
+					defer GinkgoRecover()
+					Eventually(UpdateStatus(ipClaim, func() {
+						ipClaim.Status.AddressRef.Name = ip.Name
+					})).Should(Succeed())
+				}()
+				objToDelete = append(objToDelete, ip, ipClaim)
+			}
 
 			By("creating machine")
 			_, err := (*drv).CreateMachine(ctx, &driver.CreateMachineRequest{

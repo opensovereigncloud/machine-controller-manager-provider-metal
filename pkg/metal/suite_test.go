@@ -35,7 +35,7 @@ import (
 
 const (
 	eventuallyTimeout    = 20 * time.Second
-	pollingInterval      = 250 * time.Millisecond
+	pollingInterval      = 100 * time.Millisecond
 	consistentlyDuration = 1 * time.Second
 )
 
@@ -200,7 +200,7 @@ func newMachineClass(providerName string, providerSpec map[string]interface{}) *
 	}
 }
 
-func addIPRef(ctx SpecContext, machineName, ns, metadataKey string, providerSpec map[string]interface{}) []client.Object {
+func newIPRef(machineName, ns, metadataKey string, providerSpec map[string]interface{}) (*capiv1beta1.IPAddress, *capiv1beta1.IPAddressClaim) {
 	ipAddress := &capiv1beta1.IPAddress{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      fmt.Sprintf("%s-address", metadataKey),
@@ -219,29 +219,20 @@ func addIPRef(ctx SpecContext, machineName, ns, metadataKey string, providerSpec
 			Namespace: ns,
 		},
 	}
-
-	Expect(k8sClient.Create(ctx, ipAddress)).To(Succeed())
-	Expect(k8sClient.Create(ctx, ipAddressClaim)).To(Succeed())
-	Eventually(func() error {
-		if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(ipAddressClaim), ipAddressClaim); err != nil {
-			return err
+	if providerSpec != nil {
+		ipamConfig := map[string]interface{}{
+			"metadataKey": metadataKey,
+			"ipamRef": map[string]interface{}{
+				"name":     ipAddressClaimName,
+				"apiGroup": "ipam.cluster.x-k8s.io",
+				"kind":     "GlobalInClusterIPPool",
+			}}
+		if providerSpec["ipamConfig"] != nil {
+			providerSpec["ipamConfig"] = append(providerSpec["ipamConfig"].([]map[string]interface{}), ipamConfig)
+		} else {
+			providerSpec["ipamConfig"] = []map[string]interface{}{ipamConfig}
 		}
-		ipAddressClaim.Status.AddressRef.Name = ipAddress.Name
-		return k8sClient.Status().Update(ctx, ipAddressClaim)
-	}).Should(Succeed())
-
-	ipamConfig := map[string]interface{}{
-		"metadataKey": metadataKey,
-		"ipamRef": map[string]interface{}{
-			"name":     ipAddressClaimName,
-			"apiGroup": "ipam.cluster.x-k8s.io",
-			"kind":     "GlobalInClusterIPPool",
-		}}
-	if providerSpec["ipamConfig"] != nil {
-		providerSpec["ipamConfig"] = append(providerSpec["ipamConfig"].([]map[string]interface{}), ipamConfig)
-	} else {
-		providerSpec["ipamConfig"] = []map[string]interface{}{ipamConfig}
 	}
 
-	return []client.Object{ipAddress, ipAddressClaim}
+	return ipAddress, ipAddressClaim
 }

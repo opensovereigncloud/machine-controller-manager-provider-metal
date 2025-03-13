@@ -5,7 +5,6 @@ package metal
 
 import (
 	"fmt"
-	"maps"
 
 	"github.com/gardener/machine-controller-manager/pkg/util/provider/driver"
 	"github.com/ironcore-dev/machine-controller-manager-provider-ironcore-metal/pkg/api/v1alpha1"
@@ -24,9 +23,10 @@ var _ = Describe("DeleteMachine", func() {
 
 	It("should create and delete a machine", func(ctx SpecContext) {
 		By("creating an metal machine")
-		sampleProviderSpec := maps.Clone(testing.SampleProviderSpec)
-		objToDelete := addIPRef(ctx, "machine-0", ns.Name, "pool-a", sampleProviderSpec)
-		objToDelete = append(objToDelete, addIPRef(ctx, "machine-0", ns.Name, "pool-b", sampleProviderSpec)...)
+		_, ipClaim1 := newIPRef("machine-0", ns.Name, "to-delete-pool-a", nil)
+		_, ipClaim2 := newIPRef("machine-0", ns.Name, "to-delete-pool-b", nil)
+		Expect(k8sClient.Create(ctx, ipClaim1)).To(Succeed())
+		Expect(k8sClient.Create(ctx, ipClaim2)).To(Succeed())
 
 		Expect((*drv).CreateMachine(ctx, &driver.CreateMachineRequest{
 			Machine:      newMachine(ns, "machine", -1, nil),
@@ -66,12 +66,8 @@ var _ = Describe("DeleteMachine", func() {
 		By("waiting for the ignition secret to be gone")
 		Eventually(Get(ignition)).Should(Satisfy(apierrors.IsNotFound))
 
-		for _, obj := range objToDelete {
-			if obj.GetObjectKind().GroupVersionKind().Kind == "IPAddressClaim" { // IPAddress' will be deleted by the IPAM controller
-				By("waiting for the IP to be gone " + obj.GetName())
-				Eventually(Get(obj)).Should(Satisfy(apierrors.IsNotFound))
-			}
-		}
+		Eventually(Get(ipClaim1)).Should(Satisfy(apierrors.IsNotFound))
+		Eventually(Get(ipClaim2)).Should(Satisfy(apierrors.IsNotFound))
 	})
 
 	It("should create and delete a machine igntition secret created with old naming convention", func(ctx SpecContext) {
