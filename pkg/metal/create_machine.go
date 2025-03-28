@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/imdario/mergo"
-	ipamv1alpha1 "github.com/ironcore-dev/ipam/api/ipam/v1alpha1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/util/wait"
 	capiv1beta1 "sigs.k8s.io/cluster-api/exp/ipam/api/v1beta1"
@@ -26,7 +25,6 @@ import (
 	metalv1alpha1 "github.com/ironcore-dev/metal-operator/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	apitypes "k8s.io/apimachinery/pkg/types"
 	utilvalidation "k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/klog/v2"
@@ -85,11 +83,6 @@ func (d *metalDriver) applyIPAddresses(ctx context.Context, req *driver.CreateMa
 	metalClient := d.clientProvider.Client
 
 	for _, networkRef := range providerSpec.IPAMConfig {
-		ipAddrKey := apitypes.NamespacedName{
-			Name:      req.Machine.Name,
-			Namespace: d.metalNamespace,
-		}
-
 		if networkRef.IPAMRef != nil && networkRef.IPAMRef.APIGroup == capiv1beta1.GroupVersion.Group {
 			addressMetaData, err := d.applyCapiIPAddress(ctx, networkRef, req.Machine.Name, metalClient)
 			if err != nil {
@@ -98,59 +91,6 @@ func (d *metalDriver) applyIPAddresses(ctx context.Context, req *driver.CreateMa
 			allAddressMetaData = append(allAddressMetaData, addressMetaData)
 			continue
 		}
-
-		// check if IPAddress exists
-		ipAddr := &ipamv1alpha1.IP{}
-		var err error
-		if err = metalClient.Get(ctx, ipAddrKey, ipAddr); err != nil && !apierrors.IsNotFound(err) {
-			return nil, err
-		}
-		if err == nil {
-			klog.V(3).Infof("IP found %s", ipAddrKey.String())
-		}
-		if apierrors.IsNotFound(err) {
-			if networkRef.IPAMRef == nil {
-				return nil, errors.New("ipamRef of an ipamConfig is not set")
-			}
-			klog.V(3).Infof("creating IP to claim address %s", ipAddrKey.String())
-			subnetRef := corev1.LocalObjectReference{Name: networkRef.IPAMRef.Name}
-			ip := &ipamv1alpha1.IP{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      ipAddrKey.Name,
-					Namespace: ipAddrKey.Namespace,
-				},
-				Spec: ipamv1alpha1.IPSpec{Subnet: subnetRef},
-			}
-			if err = metalClient.Create(ctx, ip); err != nil {
-				return nil, fmt.Errorf("error applying IP: %w", err)
-			}
-		}
-		// Wait for the IP address to reach the finished state
-		err = wait.PollUntilContextTimeout(
-			ctx,
-			time.Millisecond*50,
-			time.Millisecond*340,
-			true,
-			func(ctx context.Context) (bool, error) {
-				if err := metalClient.Get(ctx, ipAddrKey, ipAddr); err != nil {
-					return false, err
-				}
-				if ipAddr.Status.State == ipamv1alpha1.FinishedIPState {
-					return true, nil
-				}
-				return false, fmt.Errorf("ip address state is not finished: %s", ipAddr.Status.State)
-			})
-		if err != nil {
-			return nil, fmt.Errorf("failed to wait for for ip to be finished: %w", err)
-		}
-
-		// TODO: add net.IP validation
-		addressMetaData := map[string]any{
-			networkRef.MetadataKey: map[string]any{
-				"ip": ipAddr.Status.Reserved.Net.String(),
-			},
-		}
-		allAddressMetaData = append(allAddressMetaData, addressMetaData)
 	}
 	return allAddressMetaData, nil
 }

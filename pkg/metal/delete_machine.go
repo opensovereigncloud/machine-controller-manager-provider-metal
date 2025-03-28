@@ -9,8 +9,6 @@ import (
 	"strings"
 	"time"
 
-	ipamv1alpha1 "github.com/ironcore-dev/ipam/api/ipam/v1alpha1"
-
 	"github.com/gardener/machine-controller-manager/pkg/util/provider/driver"
 	"github.com/gardener/machine-controller-manager/pkg/util/provider/machinecodes/codes"
 	"github.com/gardener/machine-controller-manager/pkg/util/provider/machinecodes/status"
@@ -52,18 +50,6 @@ func (d *metalDriver) DeleteMachine(ctx context.Context, req *driver.DeleteMachi
 	if err := metalClient.Delete(ctx, ignitionSecret); client.IgnoreNotFound(err) != nil {
 		// Unknown leads to short retry in machine controller
 		return nil, status.Error(codes.Unknown, fmt.Sprintf("error deleting ignition secret: %s", err.Error()))
-	}
-
-	// ironcore-metal ipam specific cleanup
-	ip := &ipamv1alpha1.IP{ObjectMeta: metav1.ObjectMeta{
-		Name:      req.Machine.Name,
-		Namespace: d.metalNamespace,
-	}}
-	if err := metalClient.Delete(ctx, ip); meta.IsNoMatchError(err) {
-		klog.Warningf("Kind %s for IP with name %s not found, assuming IP object for that kind is abscent", ip.GetObjectKind().GroupVersionKind().Kind, ip.Name)
-	} else if client.IgnoreNotFound(err) != nil {
-		// Unknown leads to short retry in machine controller
-		return nil, status.Error(codes.Unknown, fmt.Sprintf("error deleting ip resource: %s", err.Error()))
 	}
 
 	// capi ipam specific cleanup

@@ -12,7 +12,7 @@ import (
 	"sync"
 
 	"github.com/fsnotify/fsnotify"
-	ipamv1alpha1 "github.com/ironcore-dev/ipam/api/ipam/v1alpha1"
+
 	metalv1alpha1 "github.com/ironcore-dev/metal-operator/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -37,7 +37,6 @@ func NewProviderAndNamespace(ctx context.Context, kubeconfigPath string) (*Provi
 	utilruntime.Must(scheme.AddToScheme(cp.s))
 	utilruntime.Must(corev1.AddToScheme(cp.s))
 	utilruntime.Must(metalv1alpha1.AddToScheme(cp.s))
-	utilruntime.Must(ipamv1alpha1.AddToScheme(cp.s))
 	utilruntime.Must(capiv1beta1.AddToScheme(cp.s))
 	ctrllog.SetLogger(klog.NewKlogr())
 
