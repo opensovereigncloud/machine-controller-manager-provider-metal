@@ -9,7 +9,6 @@ require (
 	github.com/gardener/machine-controller-manager v0.57.1
 	github.com/imdario/mergo v0.3.16
 	github.com/ironcore-dev/controller-utils v0.9.8
-	github.com/ironcore-dev/ipam v0.2.3-0.20250306091418-025ea04cc757
 	github.com/ironcore-dev/metal-operator v0.0.0-20250310075202-74e792897e52
 	github.com/onsi/ginkgo/v2 v2.23.3
 	github.com/onsi/gomega v1.36.3
@@ -81,7 +80,6 @@ require (
 	go.opentelemetry.io/otel/trace v1.28.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.27.0 // indirect
-	go4.org/netipx v0.0.0-20231129151722-fdeea329fbba // indirect
 	golang.org/x/crypto v0.36.0 // indirect
 	golang.org/x/net v0.37.0 // indirect
 	golang.org/x/oauth2 v0.24.0 // indirect

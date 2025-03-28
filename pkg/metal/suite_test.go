@@ -14,7 +14,6 @@ import (
 	gardenermachinev1alpha1 "github.com/gardener/machine-controller-manager/pkg/apis/machine/v1alpha1"
 	"github.com/gardener/machine-controller-manager/pkg/util/provider/driver"
 	"github.com/ironcore-dev/controller-utils/modutils"
-	ipamv1alpha1 "github.com/ironcore-dev/ipam/api/ipam/v1alpha1"
 	"github.com/ironcore-dev/machine-controller-manager-provider-ironcore-metal/pkg/api/v1alpha1"
 	mcmclient "github.com/ironcore-dev/machine-controller-manager-provider-ironcore-metal/pkg/client"
 	metalv1alpha1 "github.com/ironcore-dev/metal-operator/api/v1alpha1"
@@ -66,7 +65,6 @@ var _ = BeforeSuite(func() {
 			modutils.Dir("github.com/gardener/machine-controller-manager", "kubernetes", "crds", "machine.sapcloud.io_machines.yaml"),
 			modutils.Dir("github.com/gardener/machine-controller-manager", "kubernetes", "crds", "machine.sapcloud.io_machinesets.yaml"),
 			modutils.Dir("github.com/ironcore-dev/metal-operator", "config", "crd", "bases"),
-			modutils.Dir("github.com/ironcore-dev/ipam", "config", "crd", "bases"),
 			modutils.Dir("sigs.k8s.io/cluster-api", "config", "crd", "bases"),
 		},
 		ErrorIfCRDPathMissing: true,
@@ -90,7 +88,6 @@ var _ = BeforeSuite(func() {
 
 	//+kubebuilder:scaffold:scheme
 	Expect(metalv1alpha1.AddToScheme(scheme.Scheme)).To(Succeed())
-	Expect(ipamv1alpha1.AddToScheme(scheme.Scheme)).To(Succeed())
 	Expect(capiv1beta1.AddToScheme(scheme.Scheme)).To(Succeed())
 
 	k8sClient, err = client.New(cfg, client.Options{Scheme: scheme.Scheme})
