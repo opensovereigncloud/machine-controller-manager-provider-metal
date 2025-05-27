@@ -88,7 +88,85 @@ var _ = Describe("CreateMachine", func() {
 		Eventually(Object(ignition)).Should(SatisfyAll(
 			HaveField("Data", HaveKeyWithValue("ignition", MatchJSON(ignitionData))),
 		))
+	})
 
+	It("should create a machine with correct meta data", func(ctx SpecContext) {
+		machineName := "machine-0"
+		By("creating a server")
+		server := &metalv1alpha1.Server{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "test-server",
+				Annotations: map[string]string{
+					v1alpha1.LoopbackAddressAnnotation: "2001:db8::1",
+				},
+			},
+			Spec: metalv1alpha1.ServerSpec{
+				SystemUUID: "12345",
+			},
+		}
+		Expect(k8sClient.Create(ctx, server)).To(Succeed())
+
+		By("starting a non-blocking goroutine to patch ServerClaim")
+		go func() {
+			defer GinkgoRecover()
+			serverClaim := &metalv1alpha1.ServerClaim{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: ns.Name,
+					Name:      machineName,
+				},
+			}
+			Eventually(Update(serverClaim, func() {
+				serverClaim.Spec.ServerRef = &corev1.LocalObjectReference{Name: server.Name}
+			})).Should(Succeed())
+		}()
+
+		By("creating machine")
+		Expect((*drv).CreateMachine(ctx, &driver.CreateMachineRequest{
+			Machine:      newMachine(ns, "machine", -1, nil),
+			MachineClass: newMachineClass(v1alpha1.ProviderName, testing.SampleProviderSpec),
+			Secret:       providerSecret,
+		})).To(Equal(&driver.CreateMachineResponse{
+			ProviderID: fmt.Sprintf("%s://%s/machine-%d", v1alpha1.ProviderName, ns.Name, 0),
+			NodeName:   machineName,
+		}))
+
+		By("ensuring that a server claim has been created")
+		serverClaim := &metalv1alpha1.ServerClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      machineName,
+				Namespace: ns.Name,
+			},
+		}
+
+		Eventually(Object(serverClaim)).Should(SatisfyAll(
+			HaveField("ObjectMeta.Labels", map[string]string{
+				ShootNameLabelKey:      "my-shoot",
+				ShootNamespaceLabelKey: "my-shoot-namespace",
+			}),
+			HaveField("Spec.Power", metalv1alpha1.PowerOn),
+			HaveField("Spec.ServerSelector", &metav1.LabelSelector{
+				MatchLabels: map[string]string{
+					"instance-type": "bar",
+				},
+			}),
+		))
+
+		By("ensuring that the ignition secret has been created")
+		ignition := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: ns.Name,
+				Name:      machineName,
+			},
+		}
+
+		ignitionData, err := json.Marshal(testing.SampleIgnitionWithServerMetadata)
+		Expect(err).NotTo(HaveOccurred())
+		Eventually(Object(ignition)).Should(SatisfyAll(
+			HaveField("Data", HaveKeyWithValue("ignition", MatchJSON(ignitionData))),
+		))
+	})
+
+	It("should fail if the machine request is empty", func(ctx SpecContext) {
 		By("failing if the machine request is empty")
 		Eventually(func(g Gomega) {
 			_, err := (*drv).CreateMachine(ctx, nil)
