@@ -219,13 +219,17 @@ func (d *metalDriver) getOrCreateIPAddressClaims(ctx context.Context, req *drive
 				time.Millisecond*340,
 				true,
 				func(ctx context.Context) (bool, error) {
-					if err = metalClient.Get(ctx, ipAddrClaimKey, ipClaim); err != nil && !apierrors.IsNotFound(err) {
+					if err := metalClient.Get(ctx, ipAddrClaimKey, ipClaim); err != nil {
+						if apierrors.IsNotFound(err) {
+							return false, nil
+						}
 						return false, err
 					}
 					return ipClaim.Status.AddressRef.Name != "", nil
-				})
+				},
+			)
 			if err != nil {
-				return nil, nil, err
+				return nil, nil, fmt.Errorf("failed to wait for IPAddressClaim readiness: %w", err)
 			}
 		}
 
@@ -389,10 +393,10 @@ func (d *metalDriver) setServerClaimOwnershipToIPAddressClaim(ctx context.Contex
 
 	for _, IPAddressClaim := range IPAddressClaims {
 		IPAddressClaimCopy := IPAddressClaim.DeepCopy()
-		if err := controllerutil.SetOwnerReference(serverClaim, IPAddressClaim, metalClient.Scheme()); err != nil {
+		if err := controllerutil.SetOwnerReference(serverClaim, IPAddressClaimCopy, metalClient.Scheme()); err != nil {
 			return fmt.Errorf("failed to set OwnerReference: %w", err)
 		}
-		if err := metalClient.Patch(ctx, IPAddressClaim, client.MergeFrom(IPAddressClaimCopy)); err != nil {
+		if err := metalClient.Patch(ctx, IPAddressClaimCopy, client.MergeFrom(IPAddressClaim)); err != nil {
 			return fmt.Errorf("failed to patch IPAddressClaim: %w", err)
 		}
 	}
