@@ -391,11 +391,11 @@ func (d *metalDriver) setServerClaimOwnershipToIPAddressClaim(ctx context.Contex
 	}
 
 	for _, IPAddressClaim := range IPAddressClaims {
-		IPAddressClaimCopy := IPAddressClaim.DeepCopy()
-		if err := controllerutil.SetOwnerReference(serverClaim, IPAddressClaimCopy, metalClient.Scheme()); err != nil {
+		IPAddressBase := IPAddressClaim.DeepCopy()
+		if err := controllerutil.SetOwnerReference(serverClaim, IPAddressBase, metalClient.Scheme()); err != nil {
 			return fmt.Errorf("failed to set OwnerReference: %w", err)
 		}
-		if err := metalClient.Patch(ctx, IPAddressClaimCopy, client.MergeFrom(IPAddressClaim)); err != nil {
+		if err := metalClient.Patch(ctx, IPAddressBase, client.MergeFrom(IPAddressClaim)); err != nil {
 			return fmt.Errorf("failed to patch IPAddressClaim: %w", err)
 		}
 		klog.V(3).Info("Owner reference for IPAddressClaim to ServerClaim was set",
