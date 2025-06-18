@@ -219,13 +219,14 @@ func (d *metalDriver) getOrCreateIPAddressClaims(ctx context.Context, req *drive
 				time.Millisecond*340,
 				true,
 				func(ctx context.Context) (bool, error) {
-					if err = metalClient.Get(ctx, ipAddrClaimKey, ipClaim); err != nil && !apierrors.IsNotFound(err) {
-						return false, err
+					if err := metalClient.Get(ctx, ipAddrClaimKey, ipClaim); err != nil {
+						return false, client.IgnoreNotFound(err)
 					}
 					return ipClaim.Status.AddressRef.Name != "", nil
-				})
+				},
+			)
 			if err != nil {
-				return nil, nil, err
+				return nil, nil, fmt.Errorf("failed to wait for IPAddressClaim readiness: %w", err)
 			}
 		}
 
@@ -241,7 +242,9 @@ func (d *metalDriver) getOrCreateIPAddressClaims(ctx context.Context, req *drive
 			"prefix":  ipAddr.Spec.Prefix,
 			"gateway": ipAddr.Spec.Gateway,
 		}
+		klog.V(3).Info("IP address will be added to metadata", "name", ipAddrKey.String())
 	}
+	klog.V(3).Info("Successfully processed all IPs", "number of ips", len(providerSpec.IPAMConfig))
 	return ipAddressClaims, addressesMetaData, nil
 }
 
@@ -388,13 +391,16 @@ func (d *metalDriver) setServerClaimOwnershipToIPAddressClaim(ctx context.Contex
 	}
 
 	for _, IPAddressClaim := range IPAddressClaims {
-		IPAddressClaimCopy := IPAddressClaim.DeepCopy()
-		if err := controllerutil.SetOwnerReference(serverClaim, IPAddressClaim, metalClient.Scheme()); err != nil {
+		IPAddressBase := IPAddressClaim.DeepCopy()
+		if err := controllerutil.SetOwnerReference(serverClaim, IPAddressBase, metalClient.Scheme()); err != nil {
 			return fmt.Errorf("failed to set OwnerReference: %w", err)
 		}
-		if err := metalClient.Patch(ctx, IPAddressClaim, client.MergeFrom(IPAddressClaimCopy)); err != nil {
+		if err := metalClient.Patch(ctx, IPAddressBase, client.MergeFrom(IPAddressClaim)); err != nil {
 			return fmt.Errorf("failed to patch IPAddressClaim: %w", err)
 		}
+		klog.V(3).Info("Owner reference for IPAddressClaim to ServerClaim was set",
+			"IPAddressClaim", client.ObjectKeyFromObject(IPAddressClaim).String(),
+			"ServerClaim", client.ObjectKeyFromObject(serverClaim).String())
 	}
 
 	return nil
