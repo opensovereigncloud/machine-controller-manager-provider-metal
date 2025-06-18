@@ -67,12 +67,17 @@ func (d *metalDriver) CreateMachine(ctx context.Context, req *driver.CreateMachi
 
 	serverClaim := d.generateServerClaim(req, providerSpec, ignitionSecret)
 
-	serverClaim, err = d.applyInitialServerClaimAndIgnition(ctx, serverClaim, ignitionSecret)
+	serverClaim, err = d.createServerClaim(ctx, serverClaim, ignitionSecret)
 	if err != nil {
 		return nil, err
 	}
 
 	if err := d.setServerClaimOwnershipToIPAddressClaim(ctx, serverClaim, addressClaims); err != nil {
+		return nil, err
+	}
+
+	err = d.waitForServerClaim(ctx, serverClaim)
+	if err != nil {
 		return nil, err
 	}
 
@@ -308,8 +313,8 @@ func (d *metalDriver) generateIgnition(ctx context.Context, req *driver.CreateMa
 	return ignitionSecret, nil
 }
 
-// applyInitialServerClaimAndIgnition reserves a Server by creating a corresponding ServerClaim object with proper ignition data
-func (d *metalDriver) applyInitialServerClaimAndIgnition(ctx context.Context, claim *metalv1alpha1.ServerClaim, ignitionSecret *corev1.Secret) (*metalv1alpha1.ServerClaim, error) {
+// createServerClaim creates and applies a ServerClaim object with proper ignition data
+func (d *metalDriver) createServerClaim(ctx context.Context, claim *metalv1alpha1.ServerClaim, ignitionSecret *corev1.Secret) (*metalv1alpha1.ServerClaim, error) {
 	d.clientProvider.Lock()
 	defer d.clientProvider.Unlock()
 	metalClient := d.clientProvider.Client
@@ -317,13 +322,19 @@ func (d *metalDriver) applyInitialServerClaimAndIgnition(ctx context.Context, cl
 	if err := metalClient.Patch(ctx, claim, client.Apply, fieldOwner, client.ForceOwnership); err != nil {
 		return nil, status.Error(codes.Internal, fmt.Sprintf("error applying metal machine: %s", err.Error()))
 	}
-
 	if err := metalClient.Patch(ctx, ignitionSecret, client.Apply, fieldOwner, client.ForceOwnership); err != nil {
 		return nil, status.Error(codes.Internal, fmt.Sprintf("error applying ignition secret: %s", err.Error()))
 	}
+	return claim, nil
+}
 
-	// Wait for the ServerClaim to claim a server
-	if err := wait.PollUntilContextTimeout(ctx, 1*time.Second, 3*time.Second, true, func(ctx context.Context) (bool, error) {
+// waitForServerClaim waits for the ServerClaim to claim a server
+func (d *metalDriver) waitForServerClaim(ctx context.Context, claim *metalv1alpha1.ServerClaim) error {
+	d.clientProvider.Lock()
+	defer d.clientProvider.Unlock()
+	metalClient := d.clientProvider.Client
+
+	err := wait.PollUntilContextTimeout(ctx, 1*time.Second, 3*time.Second, true, func(ctx context.Context) (bool, error) {
 		if claim.Spec.ServerRef != nil { // early return if the server ref is already set
 			return true, nil
 		}
@@ -334,11 +345,11 @@ func (d *metalDriver) applyInitialServerClaimAndIgnition(ctx context.Context, cl
 			return false, nil
 		}
 		return true, nil
-	}); err != nil {
-		return nil, status.Error(codes.Internal, fmt.Sprintf("error waiting for server claim to claim a server: %s", err.Error()))
+	})
+	if err != nil {
+		return status.Error(codes.Internal, fmt.Sprintf("error waiting for server claim to claim a server: %s", err.Error()))
 	}
-
-	return claim, nil
+	return nil
 }
 
 type ServerMetadata struct {
