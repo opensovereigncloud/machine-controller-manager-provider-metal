@@ -220,10 +220,7 @@ func (d *metalDriver) getOrCreateIPAddressClaims(ctx context.Context, req *drive
 				true,
 				func(ctx context.Context) (bool, error) {
 					if err := metalClient.Get(ctx, ipAddrClaimKey, ipClaim); err != nil {
-						if apierrors.IsNotFound(err) {
-							return false, nil
-						}
-						return false, err
+						return false, client.IgnoreNotFound(err)
 					}
 					return ipClaim.Status.AddressRef.Name != "", nil
 				},
@@ -245,7 +242,9 @@ func (d *metalDriver) getOrCreateIPAddressClaims(ctx context.Context, req *drive
 			"prefix":  ipAddr.Spec.Prefix,
 			"gateway": ipAddr.Spec.Gateway,
 		}
+		klog.V(3).Info("IP address will be added to metadata", "name", ipAddrKey.String())
 	}
+	klog.V(3).Info("Successfully processed all IPs", "number of ips", len(providerSpec.IPAMConfig))
 	return ipAddressClaims, addressesMetaData, nil
 }
 
@@ -399,6 +398,9 @@ func (d *metalDriver) setServerClaimOwnershipToIPAddressClaim(ctx context.Contex
 		if err := metalClient.Patch(ctx, IPAddressClaimCopy, client.MergeFrom(IPAddressClaim)); err != nil {
 			return fmt.Errorf("failed to patch IPAddressClaim: %w", err)
 		}
+		klog.V(3).Info("Owner reference for IPAddressClaim to ServerClaim was set",
+			"IPAddressClaim", client.ObjectKeyFromObject(IPAddressClaim).String(),
+			"ServerClaim", client.ObjectKeyFromObject(serverClaim).String())
 	}
 
 	return nil
