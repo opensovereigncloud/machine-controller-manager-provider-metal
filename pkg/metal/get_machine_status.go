@@ -40,6 +40,10 @@ func (d *metalDriver) GetMachineStatus(ctx context.Context, req *driver.GetMachi
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 
+	if serverClaim.Spec.Power != metalv1alpha1.PowerOn {
+		return nil, status.Error(codes.Internal, fmt.Sprintf("server claim %q is not powered on", req.Machine.Name))
+	}
+
 	nodeName, err := GetNodeName(ctx, d.nodeNamePolicy, serverClaim, d.metalNamespace, d.clientProvider.Client)
 	if err != nil {
 		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to get node name: %v", err))
