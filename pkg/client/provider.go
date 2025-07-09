@@ -59,12 +59,21 @@ func NewProviderAndNamespace(ctx context.Context, kubeconfigPath string) (*Provi
 	return cp, namespace, nil
 }
 
-func (p *Provider) Lock() {
-	p.mu.Lock()
-}
+// func (p *Provider) Lock() {
+// 	p.mu.Lock()
+// }
 
-func (p *Provider) Unlock() {
-	p.mu.Unlock()
+// func (p *Provider) Unlock() {
+// 	p.mu.Unlock()
+// }
+
+func (p *Provider) ClientSynced(fn func(_ client.Client) error) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.Client == nil {
+		return fmt.Errorf("client is not initialized")
+	}
+	return fn(p.Client)
 }
 
 func (p *Provider) getClientConfig() (clientcmd.OverridingClientConfig, error) {

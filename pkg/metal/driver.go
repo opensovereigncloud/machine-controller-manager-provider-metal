@@ -38,10 +38,6 @@ type metalDriver struct {
 	nodeNamePolicy cmd.NodeNamePolicy
 }
 
-func (d *metalDriver) InitializeMachine(_ context.Context, _ *driver.InitializeMachineRequest) (*driver.InitializeMachineResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "Metal Provider does not yet implement InitializeMachine")
-}
-
 func (d *metalDriver) GetVolumeIDs(_ context.Context, _ *driver.GetVolumeIDsRequest) (*driver.GetVolumeIDsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "Metal Provider does not yet implement GetVolumeIDs")
 }
@@ -62,9 +58,10 @@ func (d *metalDriver) GenerateMachineClassForMigration(_ context.Context, _ *dri
 func (d *metalDriver) getIgnitionNameForMachine(ctx context.Context, machineName string) string {
 	//for backward compatibility checking if the ignition secret was already present with the old naming convention
 	ignitionSecretName := fmt.Sprintf("%s-%s", machineName, "ignition")
-	d.clientProvider.Lock()
-	defer d.clientProvider.Unlock()
-	if err := d.clientProvider.Client.Get(ctx, client.ObjectKey{Name: ignitionSecretName, Namespace: d.metalNamespace}, &corev1.Secret{}); apierrors.IsNotFound(err) {
+	err := d.clientProvider.ClientSynced(func(k8s client.Client) error {
+		return k8s.Get(ctx, client.ObjectKey{Name: ignitionSecretName, Namespace: d.metalNamespace}, &corev1.Secret{})
+	})
+	if apierrors.IsNotFound(err) {
 		return machineName
 	}
 	return ignitionSecretName

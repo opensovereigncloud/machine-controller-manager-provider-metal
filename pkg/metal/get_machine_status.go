@@ -31,9 +31,11 @@ func (d *metalDriver) GetMachineStatus(ctx context.Context, req *driver.GetMachi
 
 	serverClaim := &metalv1alpha1.ServerClaim{}
 
-	d.clientProvider.Lock()
-	defer d.clientProvider.Unlock()
-	if err := d.clientProvider.Client.Get(ctx, client.ObjectKey{Namespace: d.metalNamespace, Name: req.Machine.Name}, serverClaim); err != nil {
+	err := d.clientProvider.ClientSynced(func(metalClient client.Client) error {
+		return metalClient.Get(ctx, client.ObjectKey{Namespace: d.metalNamespace, Name: req.Machine.Name}, serverClaim)
+	})
+
+	if err != nil {
 		if apierrors.IsNotFound(err) {
 			return nil, status.Error(codes.NotFound, err.Error())
 		}
@@ -45,7 +47,7 @@ func (d *metalDriver) GetMachineStatus(ctx context.Context, req *driver.GetMachi
 		return nil, status.Error(codes.NotFound, fmt.Sprintf("server claim %q is not powered on", req.Machine.Name))
 	}
 
-	nodeName, err := GetNodeName(ctx, d.nodeNamePolicy, serverClaim, d.metalNamespace, d.clientProvider.Client)
+	nodeName, err := GetNodeName(ctx, d.nodeNamePolicy, serverClaim, d.metalNamespace, d.clientProvider)
 	if err != nil {
 		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to get node name: %v", err))
 	}

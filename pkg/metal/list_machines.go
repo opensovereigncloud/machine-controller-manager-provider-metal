@@ -36,9 +36,10 @@ func (d *metalDriver) ListMachines(ctx context.Context, req *driver.ListMachines
 		matchingLabels[k] = v
 	}
 
-	d.clientProvider.Lock()
-	defer d.clientProvider.Unlock()
-	if err := d.clientProvider.Client.List(ctx, serverClaimList, client.InNamespace(d.metalNamespace), matchingLabels); err != nil {
+	err = d.clientProvider.ClientSynced(func(metalClient client.Client) error {
+		return metalClient.List(ctx, serverClaimList, client.InNamespace(d.metalNamespace), matchingLabels)
+	})
+	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 
