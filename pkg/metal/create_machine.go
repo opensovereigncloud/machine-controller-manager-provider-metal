@@ -60,14 +60,14 @@ func (d *metalDriver) CreateMachine(ctx context.Context, req *driver.CreateMachi
 		return nil, err
 	}
 
-	ignitionSecret, err := d.generateIgnition(ctx, req, req.Machine.Name, providerSpec, addressesMetaData, nil)
+	ignitionSecret, err := d.generateIgnitionSecret(ctx, req, req.Machine.Name, providerSpec, addressesMetaData, nil)
 	if err != nil {
 		return nil, err
 	}
 
 	serverClaim := d.generateServerClaim(req, providerSpec, ignitionSecret)
 
-	serverClaim, err = d.createServerClaim(ctx, serverClaim, ignitionSecret)
+	err = d.createServerClaim(ctx, serverClaim, ignitionSecret)
 	if err != nil {
 		return nil, err
 	}
@@ -125,25 +125,23 @@ func (d *metalDriver) updateIgnitionAndPowerOnServer(ctx context.Context, req *d
 		return status.Error(codes.Internal, fmt.Sprintf("error extracting server metadata from claim: %s", err.Error()))
 	}
 
-	ignitionSecret, err := d.generateIgnition(ctx, req, hostname, providerSpec, addressesMetaData, serverMetadata)
+	ignitionSecret, err := d.generateIgnitionSecret(ctx, req, hostname, providerSpec, addressesMetaData, serverMetadata)
 	if err != nil {
 		return err
 	}
 
-	err = d.clientProvider.ClientSynced(func(metalClient client.Client) error {
+	if err := d.clientProvider.ClientSynced(func(metalClient client.Client) error {
 		return metalClient.Patch(ctx, ignitionSecret, client.Apply, fieldOwner, client.ForceOwnership)
-	})
-	if err != nil {
+	}); err != nil {
 		return err
 	}
 
 	serverClaimBase := serverClaim.DeepCopy()
 	serverClaim.Spec.Power = metalv1alpha1.PowerOn
 
-	err = d.clientProvider.ClientSynced(func(metalClient client.Client) error {
+	if err = d.clientProvider.ClientSynced(func(metalClient client.Client) error {
 		return metalClient.Patch(ctx, serverClaim, client.MergeFrom(serverClaimBase))
-	})
-	if err != nil {
+	}); err != nil {
 		return err
 	}
 
@@ -160,10 +158,10 @@ func (d *metalDriver) getOrCreateIPAddressClaims(ctx context.Context, req *drive
 	ipAddressClaims := []*capiv1beta1.IPAddressClaim{}
 	addressesMetaData := make(map[string]any)
 
-	for _, networkRef := range providerSpec.IPAMConfig {
-		ipAddrClaimName := fmt.Sprintf("%s-%s", req.Machine.Name, networkRef.MetadataKey)
+	for _, ipamConfig := range providerSpec.IPAMConfig {
+		ipAddrClaimName := fmt.Sprintf("%s-%s", req.Machine.Name, ipamConfig.MetadataKey)
 		if len(ipAddrClaimName) > utilvalidation.DNS1123SubdomainMaxLength {
-			klog.Info("IP address claim name is too long, it will be shortened which can cause name collisions", "name", ipAddrClaimName)
+			klog.Info("IPAddressClaim name is too long, it will be shortened which can cause name collisions", "name", ipAddrClaimName)
 			ipAddrClaimName = ipAddrClaimName[:utilvalidation.DNS1123SubdomainMaxLength]
 		}
 
@@ -173,98 +171,126 @@ func (d *metalDriver) getOrCreateIPAddressClaims(ctx context.Context, req *drive
 		err := d.clientProvider.ClientSynced(func(metalClient client.Client) error {
 			return metalClient.Get(ctx, ipAddrClaimKey, ipClaim)
 		})
-		if err != nil && !apierrors.IsNotFound(err) {
-			return nil, nil, err
-		} else if err == nil {
-			klog.V(3).Infof("IP address claim found %s", ipAddrClaimKey.String())
-			if ipClaim.Status.AddressRef.Name == "" {
-				return nil, nil, fmt.Errorf("IP address claim %q has no IP address reference", ipAddrClaimKey.String())
-			}
-			if ipClaim.Labels == nil {
-				return nil, nil, fmt.Errorf("IP address claim %q has no server claim labels", ipAddrClaimKey.String())
-			}
-			name, nameExists := ipClaim.Labels[LabelKeyServerClaimName]
-			namespace, namespaceExists := ipClaim.Labels[LabelKeyServerClaimNamespace]
-			if !nameExists || !namespaceExists {
-				return nil, nil, fmt.Errorf("IP address claim %q has no server claim labels", ipAddrClaimKey.String())
-			}
-			if name != req.Machine.Name || namespace != d.metalNamespace {
-				return nil, nil, fmt.Errorf("IP address claim %q's server claim labels don't match. Expected: name: %q, namespace: %q. Actual: name: %q, namespace: %q", ipAddrClaimKey.String(), req.Machine.Name, d.metalNamespace, name, namespace)
-			}
-		} else if apierrors.IsNotFound(err) {
-			if networkRef.IPAMRef == nil {
-				return nil, nil, errors.New("ipamRef of an ipamConfig is not set")
-			}
-			klog.V(3).Info("creating IP address claim", "name", ipAddrClaimKey.String())
-			apiGroup := networkRef.IPAMRef.APIGroup
-			ipClaim = &capiv1beta1.IPAddressClaim{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      ipAddrClaimKey.Name,
-					Namespace: ipAddrClaimKey.Namespace,
-					Labels: map[string]string{
-						LabelKeyServerClaimName:      req.Machine.Name,
-						LabelKeyServerClaimNamespace: d.metalNamespace,
-					},
-				},
-				Spec: capiv1beta1.IPAddressClaimSpec{
-					PoolRef: corev1.TypedLocalObjectReference{
-						APIGroup: &apiGroup,
-						Kind:     networkRef.IPAMRef.Kind,
-						Name:     networkRef.IPAMRef.Name,
-					},
-				},
-			}
-			err := d.clientProvider.ClientSynced(func(metalClient client.Client) error {
-				return metalClient.Create(ctx, ipClaim)
-			})
-			if err != nil {
-				return nil, nil, fmt.Errorf("error creating IP: %w", err)
-			}
 
-			// Wait for the IP address claim to reach the ready state
-			err = wait.PollUntilContextTimeout(
-				ctx,
-				time.Millisecond*50,
-				time.Millisecond*340,
-				true,
-				func(ctx context.Context) (bool, error) {
-					err = d.clientProvider.ClientSynced(func(metalClient client.Client) error {
-						return metalClient.Get(ctx, ipAddrClaimKey, ipClaim)
-					})
-					if err != nil {
-						return false, client.IgnoreNotFound(err)
-					}
-					return ipClaim.Status.AddressRef.Name != "", nil
-				},
-			)
-			if err != nil {
-				return nil, nil, fmt.Errorf("failed to wait for IPAddressClaim readiness: %w", err)
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				if ipClaim, err = d.createIPAddressClaim(ctx, &ipamConfig, req.Machine.Name, ipAddrClaimKey); err != nil {
+					return nil, nil, err
+				}
+			} else {
+				return nil, nil, err
+			}
+		} else {
+			if err = d.validateIPAddressClaim(ipClaim, req.Machine.Name, ipAddrClaimKey); err != nil {
+				return nil, nil, err
 			}
 		}
 
 		ipAddrKey := client.ObjectKey{Namespace: ipClaim.Namespace, Name: ipClaim.Status.AddressRef.Name}
 		ipAddr := &capiv1beta1.IPAddress{}
-		err = d.clientProvider.ClientSynced(func(metalClient client.Client) error {
+		if err = d.clientProvider.ClientSynced(func(metalClient client.Client) error {
 			return metalClient.Get(ctx, ipAddrKey, ipAddr)
-		})
-		if err != nil {
+		}); err != nil {
 			return nil, nil, err
 		}
 
 		ipAddressClaims = append(ipAddressClaims, ipClaim)
-		addressesMetaData[networkRef.MetadataKey] = map[string]any{
+		addressesMetaData[ipamConfig.MetadataKey] = map[string]any{
 			"ip":      ipAddr.Spec.Address,
 			"prefix":  ipAddr.Spec.Prefix,
 			"gateway": ipAddr.Spec.Gateway,
 		}
+
 		klog.V(3).Info("IP address will be added to metadata", "name", ipAddrKey.String())
 	}
+
 	klog.V(3).Info("Successfully processed all IPs", "number of ips", len(providerSpec.IPAMConfig))
 	return ipAddressClaims, addressesMetaData, nil
 }
 
+func (d *metalDriver) validateIPAddressClaim(ipClaim *capiv1beta1.IPAddressClaim, machineName string, ipAddrClaimKey client.ObjectKey) error {
+	klog.V(3).Infof("IP address claim found %s", ipAddrClaimKey.String())
+
+	if ipClaim.Status.AddressRef.Name == "" {
+		return fmt.Errorf("IP address claim %q has no IP address reference", ipAddrClaimKey.String())
+	}
+
+	if ipClaim.Labels == nil {
+		return fmt.Errorf("IP address claim %q has no server claim labels", ipAddrClaimKey.String())
+	}
+
+	name, nameExists := ipClaim.Labels[LabelKeyServerClaimName]
+	if !nameExists {
+		return fmt.Errorf("IP address claim %q has no server claim label for name", ipAddrClaimKey.String())
+	}
+
+	namespace, namespaceExists := ipClaim.Labels[LabelKeyServerClaimNamespace]
+	if !namespaceExists {
+		return fmt.Errorf("IP address claim %q has no server claim label for namespace", ipAddrClaimKey.String())
+	}
+
+	if name != machineName || namespace != d.metalNamespace {
+		return fmt.Errorf("IP address claim %q's server claim labels don't match. Expected: name: %q, namespace: %q. Actual: name: %q, namespace: %q", ipAddrClaimKey.String(), machineName, d.metalNamespace, name, namespace)
+	}
+
+	return nil
+}
+
+func (d *metalDriver) createIPAddressClaim(ctx context.Context, ipamConfig *apiv1alpha1.IPAMConfig, machineName string, ipAddrClaimKey client.ObjectKey) (*capiv1beta1.IPAddressClaim, error) {
+	if ipamConfig.IPAMRef == nil {
+		return nil, errors.New("ipamRef of an ipamConfig is not set")
+	}
+
+	klog.V(3).Info("creating IP address claim", "name", ipAddrClaimKey.String())
+
+	apiGroup := ipamConfig.IPAMRef.APIGroup
+	ipClaim := &capiv1beta1.IPAddressClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      ipAddrClaimKey.Name,
+			Namespace: ipAddrClaimKey.Namespace,
+			Labels: map[string]string{
+				LabelKeyServerClaimName:      machineName,
+				LabelKeyServerClaimNamespace: d.metalNamespace,
+			},
+		},
+		Spec: capiv1beta1.IPAddressClaimSpec{
+			PoolRef: corev1.TypedLocalObjectReference{
+				APIGroup: &apiGroup,
+				Kind:     ipamConfig.IPAMRef.Kind,
+				Name:     ipamConfig.IPAMRef.Name,
+			},
+		},
+	}
+
+	if err := d.clientProvider.ClientSynced(func(metalClient client.Client) error {
+		return metalClient.Create(ctx, ipClaim)
+	}); err != nil {
+		return nil, fmt.Errorf("error creating IPAddressClaim: %w", err)
+	}
+
+	// Wait for the IP address claim to reach the ready state
+	if err := wait.PollUntilContextTimeout(
+		ctx,
+		time.Millisecond*50,
+		time.Millisecond*340,
+		true,
+		func(ctx context.Context) (bool, error) {
+			if err := d.clientProvider.ClientSynced(func(metalClient client.Client) error {
+				return metalClient.Get(ctx, ipAddrClaimKey, ipClaim)
+			}); err != nil {
+				return false, client.IgnoreNotFound(err)
+			}
+			return ipClaim.Status.AddressRef.Name != "", nil
+		},
+	); err != nil {
+		return nil, fmt.Errorf("failed to wait for IPAddressClaim readiness: %w", err)
+	}
+
+	return ipClaim, nil
+}
+
 // generateIgnition creates an ignition file for the machine and stores it in a secret
-func (d *metalDriver) generateIgnition(ctx context.Context, req *driver.CreateMachineRequest, hostname string, providerSpec *apiv1alpha1.ProviderSpec, addressesMetaData map[string]any, serverMetadata *ServerMetadata) (*corev1.Secret, error) {
+func (d *metalDriver) generateIgnitionSecret(ctx context.Context, req *driver.CreateMachineRequest, hostname string, providerSpec *apiv1alpha1.ProviderSpec, addressesMetaData map[string]any, serverMetadata *ServerMetadata) (*corev1.Secret, error) {
 	// Get userData from machine secret
 	userData, ok := req.Secret.Data["userData"]
 	if !ok {
@@ -301,7 +327,8 @@ func (d *metalDriver) generateIgnition(ctx context.Context, req *driver.CreateMa
 		DnsServers:       providerSpec.DnsServers,
 		IgnitionOverride: providerSpec.IgnitionOverride,
 	}
-	ignitionContent, err := ignition.File(config)
+
+	ignitionContent, err := ignition.Render(config)
 	if err != nil {
 		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to create ignition file for machine %s: %v", req.Machine.Name, err))
 	}
@@ -324,22 +351,20 @@ func (d *metalDriver) generateIgnition(ctx context.Context, req *driver.CreateMa
 }
 
 // createServerClaim creates and applies a ServerClaim object with proper ignition data
-func (d *metalDriver) createServerClaim(ctx context.Context, claim *metalv1alpha1.ServerClaim, ignitionSecret *corev1.Secret) (*metalv1alpha1.ServerClaim, error) {
-	err := d.clientProvider.ClientSynced(func(metalClient client.Client) error {
-		return metalClient.Patch(ctx, claim, client.Apply, fieldOwner, client.ForceOwnership)
-	})
-	if err != nil {
-		return nil, status.Error(codes.Internal, fmt.Sprintf("error applying metal machine: %s", err.Error()))
-	}
-
-	err = d.clientProvider.ClientSynced(func(metalClient client.Client) error {
+func (d *metalDriver) createServerClaim(ctx context.Context, claim *metalv1alpha1.ServerClaim, ignitionSecret *corev1.Secret) error {
+	if err := d.clientProvider.ClientSynced(func(metalClient client.Client) error {
 		return metalClient.Patch(ctx, ignitionSecret, client.Apply, fieldOwner, client.ForceOwnership)
-	})
-	if err != nil {
-		return nil, status.Error(codes.Internal, fmt.Sprintf("error applying ignition secret: %s", err.Error()))
+	}); err != nil {
+		return status.Error(codes.Internal, fmt.Sprintf("error applying ignition secret: %s", err.Error()))
 	}
 
-	return claim, nil
+	if err := d.clientProvider.ClientSynced(func(metalClient client.Client) error {
+		return metalClient.Patch(ctx, claim, client.Apply, fieldOwner, client.ForceOwnership)
+	}); err != nil {
+		return status.Error(codes.Internal, fmt.Sprintf("error applying server claim: %s", err.Error()))
+	}
+
+	return nil
 }
 
 // waitForServerClaim waits for the ServerClaim to claim a server
@@ -348,10 +373,9 @@ func (d *metalDriver) waitForServerClaim(ctx context.Context, claim *metalv1alph
 		if claim.Spec.ServerRef != nil { // early return if the server ref is already set
 			return true, nil
 		}
-		err := d.clientProvider.ClientSynced(func(metalClient client.Client) error {
+		if err := d.clientProvider.ClientSynced(func(metalClient client.Client) error {
 			return metalClient.Get(ctx, client.ObjectKeyFromObject(claim), claim)
-		})
-		if err != nil {
+		}); err != nil {
 			return false, err
 		}
 		if claim.Spec.ServerRef == nil {
@@ -375,7 +399,10 @@ func (d *metalDriver) extractServerMetadataFromClaim(ctx context.Context, claim 
 	}
 
 	server := &metalv1alpha1.Server{}
-	if err := d.clientProvider.Client.Get(ctx, client.ObjectKey{Name: claim.Spec.ServerRef.Name}, server); err != nil {
+
+	if err := d.clientProvider.ClientSynced(func(metalClient client.Client) error {
+		return metalClient.Get(ctx, client.ObjectKey{Name: claim.Spec.ServerRef.Name}, server)
+	}); err != nil {
 		return nil, fmt.Errorf("failed to get server %q: %w", claim.Spec.ServerRef.Name, err)
 	}
 
@@ -401,10 +428,9 @@ func (d *metalDriver) setServerClaimOwnershipToIPAddressClaim(ctx context.Contex
 		340*time.Millisecond,
 		true,
 		func(ctx context.Context) (bool, error) {
-			err := d.clientProvider.ClientSynced(func(metalClient client.Client) error {
+			if err := d.clientProvider.ClientSynced(func(metalClient client.Client) error {
 				return metalClient.Get(ctx, client.ObjectKeyFromObject(serverClaim), serverClaim)
-			})
-			if err != nil {
+			}); err != nil {
 				return false, err
 			}
 			return true, nil
@@ -415,13 +441,12 @@ func (d *metalDriver) setServerClaimOwnershipToIPAddressClaim(ctx context.Contex
 
 	for _, IPAddressClaim := range IPAddressClaims {
 		IPAddressBase := IPAddressClaim.DeepCopy()
-		if err := controllerutil.SetOwnerReference(serverClaim, IPAddressBase, d.clientProvider.Client.Scheme()); err != nil {
+		if err := controllerutil.SetOwnerReference(serverClaim, IPAddressBase, d.clientProvider.GetClientScheme()); err != nil {
 			return fmt.Errorf("failed to set OwnerReference: %w", err)
 		}
-		err := d.clientProvider.ClientSynced(func(metalClient client.Client) error {
+		if err := d.clientProvider.ClientSynced(func(metalClient client.Client) error {
 			return metalClient.Patch(ctx, IPAddressBase, client.MergeFrom(IPAddressClaim))
-		})
-		if err != nil {
+		}); err != nil {
 			return fmt.Errorf("failed to patch IPAddressClaim: %w", err)
 		}
 		klog.V(3).Info("Owner reference for IPAddressClaim to ServerClaim was set",

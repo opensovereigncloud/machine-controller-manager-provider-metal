@@ -28,10 +28,9 @@ func GetNodeName(ctx context.Context, policy cmd.NodeNamePolicy, serverClaim *me
 			return "", errors.New("server claim does not have a server ref")
 		}
 		var server metalv1alpha1.Server
-		err := clientProvider.ClientSynced(func(metalClient client.Client) error {
+		if err := clientProvider.ClientSynced(func(metalClient client.Client) error {
 			return metalClient.Get(ctx, client.ObjectKey{Namespace: metalNamespace, Name: serverClaim.Spec.ServerRef.Name}, &server)
-		})
-		if err != nil {
+		}); err != nil {
 			return "", fmt.Errorf("failed to get server %q: %v", serverClaim.Spec.ServerRef.Name, err)
 		}
 		if server.Spec.BMCRef == nil {

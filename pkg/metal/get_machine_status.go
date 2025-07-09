@@ -31,11 +31,9 @@ func (d *metalDriver) GetMachineStatus(ctx context.Context, req *driver.GetMachi
 
 	serverClaim := &metalv1alpha1.ServerClaim{}
 
-	err := d.clientProvider.ClientSynced(func(metalClient client.Client) error {
+	if err := d.clientProvider.ClientSynced(func(metalClient client.Client) error {
 		return metalClient.Get(ctx, client.ObjectKey{Namespace: d.metalNamespace, Name: req.Machine.Name}, serverClaim)
-	})
-
-	if err != nil {
+	}); err != nil {
 		if apierrors.IsNotFound(err) {
 			return nil, status.Error(codes.NotFound, err.Error())
 		}

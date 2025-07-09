@@ -25,6 +25,8 @@ import (
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
+type ClientFunc func(client client.Client) error
+
 type Provider struct {
 	Client         client.Client
 	mu             sync.Mutex
@@ -59,21 +61,17 @@ func NewProviderAndNamespace(ctx context.Context, kubeconfigPath string) (*Provi
 	return cp, namespace, nil
 }
 
-// func (p *Provider) Lock() {
-// 	p.mu.Lock()
-// }
-
-// func (p *Provider) Unlock() {
-// 	p.mu.Unlock()
-// }
-
-func (p *Provider) ClientSynced(fn func(_ client.Client) error) error {
+func (p *Provider) ClientSynced(fn ClientFunc) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.Client == nil {
 		return fmt.Errorf("client is not initialized")
 	}
 	return fn(p.Client)
+}
+
+func (p *Provider) GetClientScheme() *runtime.Scheme {
+	return p.Client.Scheme()
 }
 
 func (p *Provider) getClientConfig() (clientcmd.OverridingClientConfig, error) {
