@@ -5,19 +5,27 @@ package metal
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 
+	apiv1alpha1 "github.com/ironcore-dev/machine-controller-manager-provider-ironcore-metal/pkg/api/v1alpha1"
+	"github.com/ironcore-dev/machine-controller-manager-provider-ironcore-metal/pkg/api/validation"
+	mcmclient "github.com/ironcore-dev/machine-controller-manager-provider-ironcore-metal/pkg/client"
 	"github.com/ironcore-dev/machine-controller-manager-provider-ironcore-metal/pkg/cmd"
+	metalv1alpha1 "github.com/ironcore-dev/metal-operator/api/v1alpha1"
 
+	machinev1alpha1 "github.com/gardener/machine-controller-manager/pkg/apis/machine/v1alpha1"
 	"github.com/gardener/machine-controller-manager/pkg/util/provider/driver"
 	"github.com/gardener/machine-controller-manager/pkg/util/provider/machinecodes/codes"
 	"github.com/gardener/machine-controller-manager/pkg/util/provider/machinecodes/status"
-	apiv1alpha1 "github.com/ironcore-dev/machine-controller-manager-provider-ironcore-metal/pkg/api/v1alpha1"
-	mcmclient "github.com/ironcore-dev/machine-controller-manager-provider-ironcore-metal/pkg/client"
-	metalv1alpha1 "github.com/ironcore-dev/metal-operator/api/v1alpha1"
+
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
+	utilvalidation "k8s.io/apimachinery/pkg/util/validation"
+	"k8s.io/apimachinery/pkg/util/validation/field"
+	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -68,4 +76,58 @@ func (d *metalDriver) getIgnitionNameForMachine(ctx context.Context, machineName
 
 func getProviderIDForServerClaim(serverClaim *metalv1alpha1.ServerClaim) string {
 	return fmt.Sprintf("%s://%s/%s", apiv1alpha1.ProviderName, serverClaim.Namespace, serverClaim.Name)
+}
+
+func getNodeName(ctx context.Context, policy cmd.NodeNamePolicy, serverClaim *metalv1alpha1.ServerClaim, metalNamespace string, clientProvider *mcmclient.Provider) (string, error) {
+	switch policy {
+	case cmd.NodeNamePolicyServerClaimName:
+		return serverClaim.Name, nil
+	case cmd.NodeNamePolicyServerName:
+		if serverClaim.Spec.ServerRef == nil {
+			return "", errors.New("server claim does not have a server ref")
+		}
+		return serverClaim.Spec.ServerRef.Name, nil
+	case cmd.NodeNamePolicyBMCName:
+		if serverClaim.Spec.ServerRef == nil {
+			return "", errors.New("server claim does not have a server ref")
+		}
+		var server metalv1alpha1.Server
+		if err := clientProvider.ClientSynced(func(metalClient client.Client) error {
+			return metalClient.Get(ctx, client.ObjectKey{Namespace: metalNamespace, Name: serverClaim.Spec.ServerRef.Name}, &server)
+		}); err != nil {
+			return "", fmt.Errorf("failed to get server %q: %v", serverClaim.Spec.ServerRef.Name, err)
+		}
+		if server.Spec.BMCRef == nil {
+			return "", fmt.Errorf("server %q does not have a BMC configured", serverClaim.Spec.ServerRef.Name)
+		}
+		return server.Spec.BMCRef.Name, nil
+	}
+	return "", fmt.Errorf("unknown node name policy: %s", policy)
+}
+
+func getIPAddressClaimName(machineName, metadataKey string) string {
+	ipAddrClaimName := fmt.Sprintf("%s-%s", machineName, metadataKey)
+	if len(ipAddrClaimName) > utilvalidation.DNS1123SubdomainMaxLength {
+		klog.Info("IPAddressClaim name is too long, it will be shortened which can cause name collisions", "name", ipAddrClaimName)
+		ipAddrClaimName = ipAddrClaimName[:utilvalidation.DNS1123SubdomainMaxLength]
+	}
+	return ipAddrClaimName
+}
+
+func GetProviderSpec(class *machinev1alpha1.MachineClass, secret *corev1.Secret) (*apiv1alpha1.ProviderSpec, error) {
+	if class == nil {
+		return nil, status.Error(codes.Internal, "MachineClass in ProviderSpec is not set")
+	}
+
+	var providerSpec *apiv1alpha1.ProviderSpec
+	if err := json.Unmarshal(class.ProviderSpec.Raw, &providerSpec); err != nil {
+		return nil, err
+	}
+
+	validationErr := validation.ValidateProviderSpecAndSecret(providerSpec, secret, field.NewPath("providerSpec"))
+	if validationErr.ToAggregate() != nil && len(validationErr.ToAggregate().Errors()) > 0 {
+		return nil, fmt.Errorf("failed to validate provider spec and secret: %v", validationErr.ToAggregate().Errors())
+	}
+
+	return providerSpec, nil
 }

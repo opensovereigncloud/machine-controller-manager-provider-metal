@@ -13,6 +13,7 @@ import (
 
 	"github.com/gardener/machine-controller-manager/pkg/util/provider/driver"
 	"github.com/ironcore-dev/machine-controller-manager-provider-ironcore-metal/pkg/api/v1alpha1"
+	"github.com/ironcore-dev/machine-controller-manager-provider-ironcore-metal/pkg/api/validation"
 	"github.com/ironcore-dev/machine-controller-manager-provider-ironcore-metal/pkg/metal/testing"
 	metalv1alpha1 "github.com/ironcore-dev/metal-operator/api/v1alpha1"
 	. "github.com/onsi/ginkgo/v2"
@@ -259,8 +260,8 @@ var _ = Describe("CreateMachine", func() {
 
 			for _, ipClaim := range ipClaims {
 				Eventually(Object(ipClaim)).Should(SatisfyAll(
-					HaveField("Labels", HaveKeyWithValue(LabelKeyServerClaimName, ServerClaim.Name)),
-					HaveField("Labels", HaveKeyWithValue(LabelKeyServerClaimNamespace, ns.Name)),
+					HaveField("Labels", HaveKeyWithValue(validation.LabelKeyServerClaimName, ServerClaim.Name)),
+					HaveField("Labels", HaveKeyWithValue(validation.LabelKeyServerClaimNamespace, ns.Name)),
 					HaveField("OwnerReferences", ContainElement(
 						metav1.OwnerReference{
 							APIVersion: metalv1alpha1.GroupVersion.String(),
