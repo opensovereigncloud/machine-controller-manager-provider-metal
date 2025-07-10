@@ -114,13 +114,13 @@ func getIPAddressClaimName(machineName, metadataKey string) string {
 	return ipAddrClaimName
 }
 
-func GetProviderSpec(class *machinev1alpha1.MachineClass, secret *corev1.Secret) (*apiv1alpha1.ProviderSpec, error) {
-	if class == nil {
-		return nil, status.Error(codes.Internal, "MachineClass in ProviderSpec is not set")
+func GetProviderSpec(machineClass *machinev1alpha1.MachineClass, secret *corev1.Secret) (*apiv1alpha1.ProviderSpec, error) {
+	if machineClass == nil {
+		return nil, status.Error(codes.Internal, "MachineClass is not set in request")
 	}
 
 	var providerSpec *apiv1alpha1.ProviderSpec
-	if err := json.Unmarshal(class.ProviderSpec.Raw, &providerSpec); err != nil {
+	if err := json.Unmarshal(machineClass.ProviderSpec.Raw, &providerSpec); err != nil {
 		return nil, err
 	}
 
