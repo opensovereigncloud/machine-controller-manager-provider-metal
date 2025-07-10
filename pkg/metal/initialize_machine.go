@@ -93,8 +93,6 @@ func isEmptyInitializeRequest(req *driver.InitializeMachineRequest) bool {
 
 // getIPAddressClaims gets IPAddressClaims for IPAMConfigs in the providerSpec
 func (d *metalDriver) getIPAddressClaims(ctx context.Context, req *driver.InitializeMachineRequest, providerSpec *apiv1alpha1.ProviderSpec, addressesMetaData map[string]any) (bool, error) {
-	ipAddressClaims := []*capiv1beta1.IPAddressClaim{}
-
 	for _, ipamConfig := range providerSpec.IPAMConfig {
 		ipAddrClaimName := getIPAddressClaimName(req.Machine.Name, ipamConfig.MetadataKey)
 		ipAddrClaimKey := client.ObjectKey{Namespace: d.metalNamespace, Name: ipAddrClaimName}
@@ -108,8 +106,9 @@ func (d *metalDriver) getIPAddressClaims(ctx context.Context, req *driver.Initia
 
 		klog.V(3).Info("validating IPAddressClaim", "namespace", ipAddrClaimKey.Namespace, "name", ipAddrClaimKey.Name)
 
-		if err := validation.ValidateIPAddressClaim(ipClaim, d.metalNamespace, req.Machine.Name, ipAddrClaimKey); err != nil {
-			return true, fmt.Errorf("failed to validate IPAddressClaim, evtl still pending: %w", err)
+		validationErr := validation.ValidateIPAddressClaim(ipClaim, d.metalNamespace, req.Machine.Name, ipAddrClaimKey)
+		if validationErr.ToAggregate() != nil && len(validationErr.ToAggregate().Errors()) > 0 {
+			return true, fmt.Errorf("failed to validate IPAddressClaim, still pending: %v", validationErr.ToAggregate().Errors())
 		}
 
 		ipAddrKey := client.ObjectKey{Namespace: ipClaim.Namespace, Name: ipClaim.Status.AddressRef.Name}
@@ -122,7 +121,6 @@ func (d *metalDriver) getIPAddressClaims(ctx context.Context, req *driver.Initia
 
 		klog.V(3).Info("IP metadata found", "namespace", ipAddrKey.Namespace, "name", ipAddrKey.Name, "ip", ipAddr.Spec.Address, "prefix", ipAddr.Spec.Prefix, "gateway", ipAddr.Spec.Gateway)
 
-		ipAddressClaims = append(ipAddressClaims, ipClaim)
 		addressesMetaData[ipamConfig.MetadataKey] = map[string]any{
 			"ip":      ipAddr.Spec.Address,
 			"prefix":  ipAddr.Spec.Prefix,
