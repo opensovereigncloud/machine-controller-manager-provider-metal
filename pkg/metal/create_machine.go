@@ -9,6 +9,7 @@ import (
 
 	apiv1alpha1 "github.com/ironcore-dev/machine-controller-manager-provider-ironcore-metal/pkg/api/v1alpha1"
 	"github.com/ironcore-dev/machine-controller-manager-provider-ironcore-metal/pkg/api/validation"
+	"github.com/ironcore-dev/machine-controller-manager-provider-ironcore-metal/pkg/cmd"
 
 	metalv1alpha1 "github.com/ironcore-dev/metal-operator/api/v1alpha1"
 
@@ -59,6 +60,17 @@ func (d *metalDriver) CreateMachine(ctx context.Context, req *driver.CreateMachi
 		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to update ownership of IPAddressClaims to ServerClaim: %v", err))
 	}
 
+	claimed, err := d.ServerIsClaimed(ctx, serverClaim)
+	if err != nil {
+		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to check if server is claimed: %v", err))
+	}
+
+	if !claimed {
+		klog.V(3).Info("server is still not claimed", "name", serverClaim.Name, "namespace", serverClaim.Namespace)
+		// workaround: codes.NotFound triggers machine create flow again
+		return nil, status.Error(codes.NotFound, fmt.Sprintf("server %q in namespace %q is still not claimed", req.Machine.Name, d.metalNamespace))
+	}
+
 	nodeName, err := getNodeName(ctx, d.nodeNamePolicy, serverClaim, d.metalNamespace, d.clientProvider)
 	if err != nil {
 		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to get node name: %v", err))
@@ -84,7 +96,7 @@ func (d *metalDriver) createIPAddressClaims(ctx context.Context, req *driver.Cre
 		ipAddrClaimKey := client.ObjectKey{Namespace: d.metalNamespace, Name: ipAddrClaimName}
 		ipClaim := &capiv1beta1.IPAddressClaim{}
 
-		err := d.clientProvider.ClientSynced(func(metalClient client.Client) error {
+		err := d.clientProvider.SyncClient(func(metalClient client.Client) error {
 			return metalClient.Get(ctx, ipAddrClaimKey, ipClaim)
 		})
 
@@ -100,6 +112,8 @@ func (d *metalDriver) createIPAddressClaims(ctx context.Context, req *driver.Cre
 		} else {
 			klog.V(3).Info("IPAddressClaim already exists", "namespace", ipClaim.Namespace, "name", ipClaim.Name)
 		}
+
+		ipAddressClaims = append(ipAddressClaims, ipClaim)
 	}
 
 	klog.V(3).Info("Successfully created all IPAddressClaims", "count", len(providerSpec.IPAMConfig))
@@ -137,7 +151,7 @@ func (d *metalDriver) createIPAddressClaim(ctx context.Context, ipamConfig *apiv
 
 	ipClaim := d.generateIPAddressClaim(ipamConfig, machineName, ipAddrClaimKey)
 
-	if err := d.clientProvider.ClientSynced(func(metalClient client.Client) error {
+	if err := d.clientProvider.SyncClient(func(metalClient client.Client) error {
 		return metalClient.Create(ctx, ipClaim)
 	}); err != nil {
 		return nil, fmt.Errorf("failed to create IPAddressClaim: %w", err)
@@ -173,7 +187,7 @@ func (d *metalDriver) generateServerClaim(req *driver.CreateMachineRequest, spec
 func (d *metalDriver) createServerClaim(ctx context.Context, claim *metalv1alpha1.ServerClaim) error {
 	klog.V(3).Info("creating ServerClaim", "name", claim.Name, "namespace", claim.Namespace)
 
-	if err := d.clientProvider.ClientSynced(func(metalClient client.Client) error {
+	if err := d.clientProvider.SyncClient(func(metalClient client.Client) error {
 		return metalClient.Patch(ctx, claim, client.Apply, fieldOwner, client.ForceOwnership)
 	}); err != nil {
 		return status.Error(codes.Internal, fmt.Sprintf("failed to create ServerClaim: %s", err.Error()))
@@ -183,22 +197,39 @@ func (d *metalDriver) createServerClaim(ctx context.Context, claim *metalv1alpha
 }
 
 // updateServerClaimOwnershipToIPAddressClaim sets the owner reference of the IPAddressClaims to the ServerClaim
-func (d *metalDriver) updateServerClaimOwnershipToIPAddressClaim(ctx context.Context, serverClaim *metalv1alpha1.ServerClaim, IPAddressClaims []*capiv1beta1.IPAddressClaim) error {
+func (d *metalDriver) updateServerClaimOwnershipToIPAddressClaim(ctx context.Context, serverClaim *metalv1alpha1.ServerClaim, ipAddressClaims []*capiv1beta1.IPAddressClaim) error {
 	klog.V(3).Info("setting owner reference for IPAddressClaims to ServerClaim", "name", client.ObjectKeyFromObject(serverClaim))
 
-	for _, IPAddressClaim := range IPAddressClaims {
-		IPAddressBase := IPAddressClaim.DeepCopy()
-		if err := controllerutil.SetOwnerReference(serverClaim, IPAddressBase, d.clientProvider.GetClientScheme()); err != nil {
+	for _, ipAddressClaim := range ipAddressClaims {
+		ipAddressBase := ipAddressClaim.DeepCopy()
+		if err := controllerutil.SetOwnerReference(serverClaim, ipAddressClaim, d.clientProvider.GetClientScheme()); err != nil {
 			return fmt.Errorf("failed to set OwnerReference: %w", err)
 		}
-		if err := d.clientProvider.ClientSynced(func(metalClient client.Client) error {
-			return metalClient.Patch(ctx, IPAddressBase, client.MergeFrom(IPAddressClaim))
+
+		if err := d.clientProvider.SyncClient(func(metalClient client.Client) error {
+			return metalClient.Patch(ctx, ipAddressClaim, client.MergeFrom(ipAddressBase))
 		}); err != nil {
 			return fmt.Errorf("failed to patch IPAddressClaim: %w", err)
 		}
+
 		klog.V(3).Info("owner reference for IPAddressClaim to ServerClaim was set",
-			"IPAddressClaim", client.ObjectKeyFromObject(IPAddressClaim).String(),
+			"IPAddressClaim", client.ObjectKeyFromObject(ipAddressClaim).String(),
 			"ServerClaim", client.ObjectKeyFromObject(serverClaim).String())
 	}
 	return nil
+}
+
+// ServerIsClaimed checks if the server is already claimed
+func (d *metalDriver) ServerIsClaimed(ctx context.Context, serverClaim *metalv1alpha1.ServerClaim) (bool, error) {
+	if d.nodeNamePolicy == cmd.NodeNamePolicyServerClaimName {
+		return true, nil // no need to wait for server to be claimed, this can happen in initialization phase
+	}
+
+	if err := d.clientProvider.SyncClient(func(metalClient client.Client) error {
+		return metalClient.Get(ctx, client.ObjectKeyFromObject(serverClaim), serverClaim)
+	}); err != nil {
+		return false, fmt.Errorf("failed to get ServerClaim %q: %v", serverClaim.Name, err)
+	}
+
+	return serverClaim.Spec.ServerRef != nil, nil
 }

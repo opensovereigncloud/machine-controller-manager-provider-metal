@@ -61,7 +61,7 @@ func NewProviderAndNamespace(ctx context.Context, kubeconfigPath string) (*Provi
 	return cp, namespace, nil
 }
 
-func (p *Provider) ClientSynced(fn ClientFunc) error {
+func (p *Provider) SyncClient(fn ClientFunc) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.Client == nil {

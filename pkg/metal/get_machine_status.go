@@ -20,18 +20,19 @@ import (
 // GetMachineStatus handles a machine get status request
 func (d *metalDriver) GetMachineStatus(ctx context.Context, req *driver.GetMachineStatusRequest) (*driver.GetMachineStatusResponse, error) {
 	if isEmptyMachineStatusRequest(req) {
-		return nil, status.Error(codes.InvalidArgument, "received empty request")
-	}
-	if req.MachineClass.Provider != apiv1alpha1.ProviderName {
-		return nil, status.Error(codes.InvalidArgument, fmt.Sprintf("requested provider '%s' is not supported by the driver '%s'", req.MachineClass.Provider, apiv1alpha1.ProviderName))
+		return nil, status.Error(codes.InvalidArgument, "received empty GetMachineStatusRequest")
 	}
 
-	klog.V(3).Infof("Machine status request has been received for %q", req.Machine.Name)
-	defer klog.V(3).Infof("Machine status request has been processed for %q", req.Machine.Name)
+	if req.MachineClass.Provider != apiv1alpha1.ProviderName {
+		return nil, status.Error(codes.InvalidArgument, fmt.Sprintf("requested provider %q is not supported by the driver %q", req.MachineClass.Provider, apiv1alpha1.ProviderName))
+	}
+
+	klog.V(3).Infof("machine status request has been received for %q", req.Machine.Name)
+	defer klog.V(3).Infof("machine status request has been processed for %q", req.Machine.Name)
 
 	serverClaim := &metalv1alpha1.ServerClaim{}
 
-	if err := d.clientProvider.ClientSynced(func(metalClient client.Client) error {
+	if err := d.clientProvider.SyncClient(func(metalClient client.Client) error {
 		return metalClient.Get(ctx, client.ObjectKey{Namespace: d.metalNamespace, Name: req.Machine.Name}, serverClaim)
 	}); err != nil {
 		if apierrors.IsNotFound(err) {
@@ -40,6 +41,7 @@ func (d *metalDriver) GetMachineStatus(ctx context.Context, req *driver.GetMachi
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 
+	// To be reworked, this has to go in initialization phase
 	if serverClaim.Spec.Power != metalv1alpha1.PowerOn {
 		// workaround: NotFound/Unimplemented triggers machine create flow
 		return nil, status.Error(codes.NotFound, fmt.Sprintf("server claim %q is not powered on", req.Machine.Name))

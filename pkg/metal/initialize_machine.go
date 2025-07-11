@@ -102,7 +102,7 @@ func (d *metalDriver) getIPAddressClaimsMetadata(ctx context.Context, req *drive
 		ipAddrClaimKey := client.ObjectKey{Namespace: d.metalNamespace, Name: ipAddrClaimName}
 		ipClaim := &capiv1beta1.IPAddressClaim{}
 
-		if err := d.clientProvider.ClientSynced(func(metalClient client.Client) error {
+		if err := d.clientProvider.SyncClient(func(metalClient client.Client) error {
 			return metalClient.Get(ctx, ipAddrClaimKey, ipClaim)
 		}); err != nil {
 			return false, fmt.Errorf("failed to get IPAddressClaim %q: %w", client.ObjectKeyFromObject(ipClaim), err)
@@ -117,7 +117,7 @@ func (d *metalDriver) getIPAddressClaimsMetadata(ctx context.Context, req *drive
 
 		ipAddrKey := client.ObjectKey{Namespace: ipClaim.Namespace, Name: ipClaim.Status.AddressRef.Name}
 		ipAddr := &capiv1beta1.IPAddress{}
-		if err := d.clientProvider.ClientSynced(func(metalClient client.Client) error {
+		if err := d.clientProvider.SyncClient(func(metalClient client.Client) error {
 			return metalClient.Get(ctx, ipAddrKey, ipAddr)
 		}); err != nil {
 			return false, fmt.Errorf("failed to get IPAddress %q: %w", client.ObjectKeyFromObject(ipAddr), err)
@@ -197,7 +197,7 @@ func (d *metalDriver) generateIgnitionSecret(ctx context.Context, req *driver.In
 func (d *metalDriver) createIgnitionSecret(ctx context.Context, ignitionSecret *corev1.Secret) error {
 	klog.V(3).Info("creating Ignition Secret", "name", ignitionSecret.Name, "namespace", ignitionSecret.Namespace)
 
-	if err := d.clientProvider.ClientSynced(func(metalClient client.Client) error {
+	if err := d.clientProvider.SyncClient(func(metalClient client.Client) error {
 		return metalClient.Patch(ctx, ignitionSecret, client.Apply, fieldOwner, client.ForceOwnership)
 	}); err != nil {
 		return fmt.Errorf("error applying ignition Secret: %w", err)
@@ -216,7 +216,7 @@ func (d *metalDriver) createIgnitionSecret(ctx context.Context, ignitionSecret *
 // 			Name: ignitionSecret.Name,
 // 		}
 
-// 		if err := d.clientProvider.ClientSynced(func(metalClient client.Client) error {
+// 		if err := d.clientProvider.SyncClient(func(metalClient client.Client) error {
 // 			return metalClient.Patch(ctx, serverClaim, client.MergeFrom(serverClaimBase))
 // 		}); err != nil {
 // 			return fmt.Errorf("failed to patch ServerClaim: %w", err)
@@ -245,7 +245,7 @@ func (d *metalDriver) updateIgnitionAndPowerOnServer(ctx context.Context, req *d
 		return err
 	}
 
-	if err := d.clientProvider.ClientSynced(func(metalClient client.Client) error {
+	if err := d.clientProvider.SyncClient(func(metalClient client.Client) error {
 		return metalClient.Patch(ctx, ignitionSecret, client.Apply, fieldOwner, client.ForceOwnership)
 	}); err != nil {
 		return err
@@ -257,7 +257,7 @@ func (d *metalDriver) updateIgnitionAndPowerOnServer(ctx context.Context, req *d
 		Name: ignitionSecret.Name,
 	}
 
-	if err = d.clientProvider.ClientSynced(func(metalClient client.Client) error {
+	if err = d.clientProvider.SyncClient(func(metalClient client.Client) error {
 		return metalClient.Patch(ctx, serverClaim, client.MergeFrom(serverClaimBase))
 	}); err != nil {
 		return err
@@ -279,7 +279,7 @@ func (d *metalDriver) extractServerMetadataFromClaim(ctx context.Context, claim 
 
 	server := &metalv1alpha1.Server{}
 
-	if err := d.clientProvider.ClientSynced(func(metalClient client.Client) error {
+	if err := d.clientProvider.SyncClient(func(metalClient client.Client) error {
 		return metalClient.Get(ctx, client.ObjectKey{Name: claim.Spec.ServerRef.Name}, server)
 	}); err != nil {
 		return nil, fmt.Errorf("failed to get Server by reference %q: %w", claim.Spec.ServerRef.Name, err)
@@ -308,7 +308,7 @@ func (d *metalDriver) getServerClaim(ctx context.Context, req *driver.Initialize
 		},
 	}
 
-	if err := d.clientProvider.ClientSynced(func(metalClient client.Client) error {
+	if err := d.clientProvider.SyncClient(func(metalClient client.Client) error {
 		return metalClient.Get(ctx, client.ObjectKeyFromObject(serverClaim), serverClaim)
 	}); err != nil {
 		return nil, false, fmt.Errorf("failed to get ServerClaim %q: %w", client.ObjectKeyFromObject(serverClaim), err)

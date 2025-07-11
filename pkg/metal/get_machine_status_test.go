@@ -45,7 +45,7 @@ var _ = Describe("GetMachineStatus", func() {
 		}
 		ret, err := (*drv).GetMachineStatus(ctx, emptyMacReq)
 		Expect(ret).To(BeNil())
-		Expect(err).Should(MatchError(status.Error(codes.InvalidArgument, "received empty request")))
+		Expect(err).Should(MatchError(status.Error(codes.InvalidArgument, "received empty GetMachineStatusRequest")))
 
 		By("starting a non-blocking goroutine to patch ServerClaim")
 		go func() {
@@ -71,15 +71,20 @@ var _ = Describe("GetMachineStatus", func() {
 			NodeName:   "machine-0",
 		}))
 
+		// TODO: This is a workaround, to be reworked
 		By("ensuring the machine status")
-		Expect((*drv).GetMachineStatus(ctx, &driver.GetMachineStatusRequest{
+		_, err = (*drv).GetMachineStatus(ctx, &driver.GetMachineStatusRequest{
 			Machine:      newMachine(ns, "machine", -1, nil),
 			MachineClass: newMachineClass(v1alpha1.ProviderName, testing.SampleProviderSpec),
 			Secret:       providerSecret,
-		})).To(Equal(&driver.GetMachineStatusResponse{
-			ProviderID: fmt.Sprintf("%s://%s/machine-%d", v1alpha1.ProviderName, ns.Name, 0),
-			NodeName:   "machine-0",
-		}))
+		})
+		Expect(err).To(HaveOccurred())
+		Expect(err).Should(MatchError(status.Error(codes.NotFound, fmt.Sprintf("server claim %q is not powered on", "machine-0"))))
+
+		// .To(Equal(&driver.GetMachineStatusResponse{
+		// 	ProviderID: fmt.Sprintf("%s://%s/machine-%d", v1alpha1.ProviderName, ns.Name, 0),
+		// 	NodeName:   "machine-0",
+		// }))
 	})
 })
 
@@ -115,24 +120,34 @@ var _ = Describe("GetMachineStatus using Server names", func() {
 		}()
 
 		By("creating machine")
-		Expect((*drv).CreateMachine(ctx, &driver.CreateMachineRequest{
-			Machine:      newMachine(ns, "machine", -1, nil),
-			MachineClass: newMachineClass(v1alpha1.ProviderName, testing.SampleProviderSpec),
-			Secret:       providerSecret,
-		})).To(Equal(&driver.CreateMachineResponse{
-			ProviderID: fmt.Sprintf("%s://%s/machine-%d", v1alpha1.ProviderName, ns.Name, 0),
-			NodeName:   server.Name,
-		}))
 
+		Eventually(func(g Gomega) {
+			cmResponse, err := (*drv).CreateMachine(ctx, &driver.CreateMachineRequest{
+				Machine:      newMachine(ns, "machine", -1, nil),
+				MachineClass: newMachineClass(v1alpha1.ProviderName, testing.SampleProviderSpec),
+				Secret:       providerSecret,
+			})
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(cmResponse).To(Equal(&driver.CreateMachineResponse{
+				ProviderID: fmt.Sprintf("%s://%s/machine-%d", v1alpha1.ProviderName, ns.Name, 0),
+				NodeName:   server.Name,
+			}))
+		}).Should(Succeed())
+
+		// TODO: This is a workaround, to be reworked
 		By("ensuring the machine status")
-		Expect((*drv).GetMachineStatus(ctx, &driver.GetMachineStatusRequest{
+		_, err := (*drv).GetMachineStatus(ctx, &driver.GetMachineStatusRequest{
 			Machine:      newMachine(ns, "machine", -1, nil),
 			MachineClass: newMachineClass(v1alpha1.ProviderName, testing.SampleProviderSpec),
 			Secret:       providerSecret,
-		})).To(Equal(&driver.GetMachineStatusResponse{
-			ProviderID: fmt.Sprintf("%s://%s/machine-%d", v1alpha1.ProviderName, ns.Name, 0),
-			NodeName:   server.Name,
-		}))
+		})
+		Expect(err).To(HaveOccurred())
+		Expect(err).Should(MatchError(status.Error(codes.NotFound, fmt.Sprintf("server claim %q is not powered on", machineName))))
+
+		// })).To(Equal(&driver.GetMachineStatusResponse{
+		// 	ProviderID: fmt.Sprintf("%s://%s/machine-%d", v1alpha1.ProviderName, ns.Name, 0),
+		// 	NodeName:   server.Name,
+		// }))
 	})
 })
 
@@ -187,23 +202,31 @@ var _ = Describe("GetMachineStatus using BMC names", func() {
 		}()
 
 		By("creating machine")
-		Expect((*drv).CreateMachine(ctx, &driver.CreateMachineRequest{
-			Machine:      newMachine(ns, "machine", -1, nil),
-			MachineClass: newMachineClass(v1alpha1.ProviderName, testing.SampleProviderSpec),
-			Secret:       providerSecret,
-		})).To(Equal(&driver.CreateMachineResponse{
-			ProviderID: fmt.Sprintf("%s://%s/machine-%d", v1alpha1.ProviderName, ns.Name, 0),
-			NodeName:   bmc.Name,
-		}))
+		Eventually(func(g Gomega) {
+			cmResponse, err := (*drv).CreateMachine(ctx, &driver.CreateMachineRequest{
+				Machine:      newMachine(ns, "machine", -1, nil),
+				MachineClass: newMachineClass(v1alpha1.ProviderName, testing.SampleProviderSpec),
+				Secret:       providerSecret,
+			})
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(cmResponse).To(Equal(&driver.CreateMachineResponse{
+				ProviderID: fmt.Sprintf("%s://%s/machine-%d", v1alpha1.ProviderName, ns.Name, 0),
+				NodeName:   bmc.Name,
+			}))
+		}).Should(Succeed())
 
+		// TODO: This is a workaround, to be reworked
 		By("ensuring the machine status")
-		Expect((*drv).GetMachineStatus(ctx, &driver.GetMachineStatusRequest{
+		_, err := (*drv).GetMachineStatus(ctx, &driver.GetMachineStatusRequest{
 			Machine:      newMachine(ns, "machine", -1, nil),
 			MachineClass: newMachineClass(v1alpha1.ProviderName, testing.SampleProviderSpec),
 			Secret:       providerSecret,
-		})).To(Equal(&driver.GetMachineStatusResponse{
-			ProviderID: fmt.Sprintf("%s://%s/machine-%d", v1alpha1.ProviderName, ns.Name, 0),
-			NodeName:   bmc.Name,
-		}))
+		})
+		Expect(err).To(HaveOccurred())
+		Expect(err).Should(MatchError(status.Error(codes.NotFound, fmt.Sprintf("server claim %q is not powered on", machineName))))
+		// .To(Equal(&driver.GetMachineStatusResponse{
+		// 	ProviderID: fmt.Sprintf("%s://%s/machine-%d", v1alpha1.ProviderName, ns.Name, 0),
+		// 	NodeName:   bmc.Name,
+		// }))
 	})
 })

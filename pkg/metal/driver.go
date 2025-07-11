@@ -66,7 +66,7 @@ func (d *metalDriver) GenerateMachineClassForMigration(_ context.Context, _ *dri
 func (d *metalDriver) getIgnitionNameForMachine(ctx context.Context, machineName string) string {
 	//for backward compatibility checking if the ignition secret was already present with the old naming convention
 	ignitionSecretName := fmt.Sprintf("%s-%s", machineName, "ignition")
-	if err := d.clientProvider.ClientSynced(func(k8s client.Client) error {
+	if err := d.clientProvider.SyncClient(func(k8s client.Client) error {
 		return k8s.Get(ctx, client.ObjectKey{Name: ignitionSecretName, Namespace: d.metalNamespace}, &corev1.Secret{})
 	}); apierrors.IsNotFound(err) {
 		return machineName
@@ -92,7 +92,7 @@ func getNodeName(ctx context.Context, policy cmd.NodeNamePolicy, serverClaim *me
 			return "", errors.New("server claim does not have a server ref")
 		}
 		var server metalv1alpha1.Server
-		if err := clientProvider.ClientSynced(func(metalClient client.Client) error {
+		if err := clientProvider.SyncClient(func(metalClient client.Client) error {
 			return metalClient.Get(ctx, client.ObjectKey{Namespace: metalNamespace, Name: serverClaim.Spec.ServerRef.Name}, &server)
 		}); err != nil {
 			return "", fmt.Errorf("failed to get server %q: %v", serverClaim.Spec.ServerRef.Name, err)
