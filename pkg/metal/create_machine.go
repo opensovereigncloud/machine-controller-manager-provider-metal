@@ -100,16 +100,20 @@ func (d *metalDriver) createIPAddressClaims(ctx context.Context, req *driver.Cre
 
 	for _, ipamConfig := range providerSpec.IPAMConfig {
 		ipAddrClaimName := getIPAddressClaimName(req.Machine.Name, ipamConfig.MetadataKey)
-		ipAddrClaimKey := client.ObjectKey{Namespace: d.metalNamespace, Name: ipAddrClaimName}
-		ipClaim := &capiv1beta1.IPAddressClaim{}
+		ipClaim := &capiv1beta1.IPAddressClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      ipAddrClaimName,
+				Namespace: d.metalNamespace,
+			},
+		}
 
 		err := d.clientProvider.SyncClient(func(metalClient client.Client) error {
-			return metalClient.Get(ctx, ipAddrClaimKey, ipClaim)
+			return metalClient.Get(ctx, client.ObjectKeyFromObject(ipClaim), ipClaim)
 		})
 
 		if err != nil {
 			if apierrors.IsNotFound(err) {
-				if ipClaim, err = d.createIPAddressClaim(ctx, &ipamConfig, req.Machine.Name, ipAddrClaimKey); err != nil {
+				if ipClaim, err = d.createIPAddressClaim(ctx, &ipamConfig, req.Machine.Name, ipClaim.Name); err != nil {
 					return nil, err
 				}
 				klog.V(3).Info("IPAddressClaim created", "namespace", ipClaim.Namespace, "name", ipClaim.Name)
@@ -128,11 +132,11 @@ func (d *metalDriver) createIPAddressClaims(ctx context.Context, req *driver.Cre
 }
 
 // generateIPAddressClaim generates an IPAddressClaim object based on the IPAMConfig and machine name
-func (d *metalDriver) generateIPAddressClaim(ipamConfig *apiv1alpha1.IPAMConfig, machineName string, ipAddrClaimKey client.ObjectKey) *capiv1beta1.IPAddressClaim {
+func (d *metalDriver) generateIPAddressClaim(ipamConfig *apiv1alpha1.IPAMConfig, machineName string, ipAddrClaimName string) *capiv1beta1.IPAddressClaim {
 	return &capiv1beta1.IPAddressClaim{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      ipAddrClaimKey.Name,
-			Namespace: ipAddrClaimKey.Namespace,
+			Name:      ipAddrClaimName,
+			Namespace: d.metalNamespace,
 			Labels: map[string]string{
 				validation.LabelKeyServerClaimName:      machineName,
 				validation.LabelKeyServerClaimNamespace: d.metalNamespace,
@@ -149,14 +153,14 @@ func (d *metalDriver) generateIPAddressClaim(ipamConfig *apiv1alpha1.IPAMConfig,
 }
 
 // createIPAddressClaim creates IPAddressClaim
-func (d *metalDriver) createIPAddressClaim(ctx context.Context, ipamConfig *apiv1alpha1.IPAMConfig, machineName string, ipAddrClaimKey client.ObjectKey) (*capiv1beta1.IPAddressClaim, error) {
+func (d *metalDriver) createIPAddressClaim(ctx context.Context, ipamConfig *apiv1alpha1.IPAMConfig, machineName string, ipAddrClaimName string) (*capiv1beta1.IPAddressClaim, error) {
 	if ipamConfig.IPAMRef == nil {
 		return nil, fmt.Errorf("IPAMRef of an IPAMConfig %q is not set", ipamConfig.MetadataKey)
 	}
 
-	klog.V(3).Info("creating IP address claim", "name", ipAddrClaimKey.String())
+	klog.V(3).Info("creating IP address claim", "name", ipAddrClaimName)
 
-	ipClaim := d.generateIPAddressClaim(ipamConfig, machineName, ipAddrClaimKey)
+	ipClaim := d.generateIPAddressClaim(ipamConfig, machineName, ipAddrClaimName)
 
 	if err := d.clientProvider.SyncClient(func(metalClient client.Client) error {
 		return metalClient.Create(ctx, ipClaim)
