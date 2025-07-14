@@ -18,6 +18,8 @@ import (
 const (
 	LabelKeyServerClaimName      = "metal.ironcore.dev/server-claim-name"
 	LabelKeyServerClaimNamespace = "metal.ironcore.dev/server-claim-namespace"
+
+	AnnotationMCMMachineRecreate = "metal.ironcore.dev/mcm-machine-recreate"
 )
 
 // ValidateProviderSpecAndSecret validates the provider spec and provider secret

@@ -60,15 +60,22 @@ func (d *metalDriver) CreateMachine(ctx context.Context, req *driver.CreateMachi
 		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to update ownership of IPAddressClaims to ServerClaim: %v", err))
 	}
 
-	claimed, err := d.ServerIsClaimed(ctx, serverClaim)
-	if err != nil {
-		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to check if server is claimed: %v", err))
-	}
+	// we need the server to be claimed if not the ServerClaimName policy in order to get the node name
+	if d.nodeNamePolicy != cmd.NodeNamePolicyServerClaimName {
+		claimed, err := d.ServerIsClaimed(ctx, serverClaim)
+		if err != nil {
+			return nil, status.Error(codes.Internal, fmt.Sprintf("failed to check if server is claimed: %v", err))
+		}
 
-	if !claimed {
-		klog.V(3).Info("server is still not claimed", "name", serverClaim.Name, "namespace", serverClaim.Namespace)
-		// workaround: codes.NotFound triggers machine create flow again
-		return nil, status.Error(codes.NotFound, fmt.Sprintf("server %q in namespace %q is still not claimed", req.Machine.Name, d.metalNamespace))
+		if !claimed {
+			klog.V(3).Info("server is still not claimed, patching ServerClaim with recreate annotation", "name", serverClaim.Name, "namespace", serverClaim.Namespace)
+			err = d.patchServerClaimWithRecreateAnnotation(ctx, serverClaim)
+			if err != nil {
+				return nil, status.Error(codes.Internal, fmt.Sprintf("failed to patch ServerClaim with recreate annotation: %v", err))
+			}
+			// workaround: codes.Unavailable will ensure a short retry in 5 seconds
+			return nil, status.Error(codes.Unavailable, fmt.Sprintf("server %q in namespace %q is still not claimed", req.Machine.Name, d.metalNamespace))
+		}
 	}
 
 	nodeName, err := getNodeName(ctx, d.nodeNamePolicy, serverClaim, d.metalNamespace, d.clientProvider)
@@ -196,6 +203,24 @@ func (d *metalDriver) createServerClaim(ctx context.Context, claim *metalv1alpha
 	return nil
 }
 
+// patchServerClaimWithRecreateAnnotation patches the ServerClaim with an annotation to trigger a machine recreation
+func (d *metalDriver) patchServerClaimWithRecreateAnnotation(ctx context.Context, serverClaim *metalv1alpha1.ServerClaim) error {
+	klog.V(3).Info("patching ServerClaim with recreate annotation", "name", serverClaim.Name, "namespace", serverClaim.Namespace)
+
+	if err := d.clientProvider.SyncClient(func(metalClient client.Client) error {
+		baseServerClaim := serverClaim.DeepCopy()
+		if serverClaim.Annotations == nil {
+			serverClaim.Annotations = make(map[string]string)
+		}
+		serverClaim.Annotations[validation.AnnotationMCMMachineRecreate] = "true"
+		return metalClient.Patch(ctx, serverClaim, client.MergeFrom(baseServerClaim))
+	}); err != nil {
+		return status.Error(codes.Internal, fmt.Sprintf("failed to create ServerClaim: %s", err.Error()))
+	}
+
+	return nil
+}
+
 // updateServerClaimOwnershipToIPAddressClaim sets the owner reference of the IPAddressClaims to the ServerClaim
 func (d *metalDriver) updateServerClaimOwnershipToIPAddressClaim(ctx context.Context, serverClaim *metalv1alpha1.ServerClaim, ipAddressClaims []*capiv1beta1.IPAddressClaim) error {
 	klog.V(3).Info("setting owner reference for IPAddressClaims to ServerClaim", "name", client.ObjectKeyFromObject(serverClaim))
@@ -221,10 +246,6 @@ func (d *metalDriver) updateServerClaimOwnershipToIPAddressClaim(ctx context.Con
 
 // ServerIsClaimed checks if the server is already claimed
 func (d *metalDriver) ServerIsClaimed(ctx context.Context, serverClaim *metalv1alpha1.ServerClaim) (bool, error) {
-	if d.nodeNamePolicy == cmd.NodeNamePolicyServerClaimName {
-		return true, nil // no need to wait for server to be claimed, this can happen in initialization phase
-	}
-
 	if err := d.clientProvider.SyncClient(func(metalClient client.Client) error {
 		return metalClient.Get(ctx, client.ObjectKeyFromObject(serverClaim), serverClaim)
 	}); err != nil {

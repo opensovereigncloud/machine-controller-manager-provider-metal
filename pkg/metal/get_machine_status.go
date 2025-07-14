@@ -11,6 +11,7 @@ import (
 	"github.com/gardener/machine-controller-manager/pkg/util/provider/machinecodes/codes"
 	"github.com/gardener/machine-controller-manager/pkg/util/provider/machinecodes/status"
 	apiv1alpha1 "github.com/ironcore-dev/machine-controller-manager-provider-ironcore-metal/pkg/api/v1alpha1"
+	"github.com/ironcore-dev/machine-controller-manager-provider-ironcore-metal/pkg/api/validation"
 	metalv1alpha1 "github.com/ironcore-dev/metal-operator/api/v1alpha1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/klog/v2"
@@ -41,11 +42,16 @@ func (d *metalDriver) GetMachineStatus(ctx context.Context, req *driver.GetMachi
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 
-	// To be reworked, this has to go in initialization phase
-	if serverClaim.Spec.Power != metalv1alpha1.PowerOn {
+	if len(serverClaim.Annotations) > 0 && serverClaim.Annotations[validation.AnnotationMCMMachineRecreate] == "true" {
 		// workaround: NotFound/Unimplemented triggers machine create flow
-		return nil, status.Error(codes.NotFound, fmt.Sprintf("server claim %q is not powered on", req.Machine.Name))
+		return nil, status.Error(codes.NotFound, fmt.Sprintf("server claim %q is marked for recreation", req.Machine.Name))
 	}
+
+	// TODO: To be reworked, this has to go in initialization phase
+	// if serverClaim.Spec.Power != metalv1alpha1.PowerOn {
+	// 	// workaround: NotFound/Unimplemented triggers machine create flow
+	// 	return nil, status.Error(codes.NotFound, fmt.Sprintf("server claim %q is not powered on", req.Machine.Name))
+	// }
 
 	nodeName, err := getNodeName(ctx, d.nodeNamePolicy, serverClaim, d.metalNamespace, d.clientProvider)
 	if err != nil {

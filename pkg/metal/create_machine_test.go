@@ -70,6 +70,16 @@ var _ = Describe("CreateMachine", func() {
 			NodeName:   machineName,
 		}))
 
+		By("creating machine again to ensure idempotency")
+		Expect((*drv).CreateMachine(ctx, &driver.CreateMachineRequest{
+			Machine:      newMachine(ns, "machine", -1, nil),
+			MachineClass: newMachineClass(v1alpha1.ProviderName, testing.SampleProviderSpec),
+			Secret:       providerSecret,
+		})).To(Equal(&driver.CreateMachineResponse{
+			ProviderID: fmt.Sprintf("%s://%s/machine-%d", v1alpha1.ProviderName, ns.Name, 0),
+			NodeName:   machineName,
+		}))
+
 		By("ensuring that a server claim has been created")
 		serverClaim := &metalv1alpha1.ServerClaim{
 			ObjectMeta: metav1.ObjectMeta{
@@ -90,7 +100,13 @@ var _ = Describe("CreateMachine", func() {
 				},
 			}),
 		))
-		DeferCleanup(k8sClient.Delete, serverClaim)
+
+		By("ensuring the cleanup of the machine")
+		DeferCleanup((*drv).DeleteMachine, &driver.DeleteMachineRequest{
+			Machine:      newMachine(ns, "machine", -1, nil),
+			MachineClass: newMachineClass(v1alpha1.ProviderName, testing.SampleProviderSpec),
+			Secret:       providerSecret,
+		})
 
 		// TODO needs to go to initialize machine test
 		// By("ensuring that the ignition secret has not been created")
@@ -285,21 +301,24 @@ var _ = Describe("CreateMachine", func() {
 		Expect(err).NotTo(HaveOccurred())
 
 		By("ensuring that the server claim owns the ip address claims")
-		ServerClaimKey := client.ObjectKey{Namespace: ns.Name, Name: machineName}
-		ServerClaim := &metalv1alpha1.ServerClaim{}
-		Eventually(k8sClient.Get(ctx, ServerClaimKey, ServerClaim)).Should(Succeed())
-		DeferCleanup(k8sClient.Delete, ServerClaim)
+		serverClaim := &metalv1alpha1.ServerClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: ns.Name,
+				Name:      machineName,
+			},
+		}
+		Eventually(k8sClient.Get(ctx, client.ObjectKeyFromObject(serverClaim), serverClaim)).Should(Succeed())
 
 		for _, ipClaim := range ipClaims {
 			Eventually(Object(ipClaim)).Should(SatisfyAll(
-				HaveField("Labels", HaveKeyWithValue(validation.LabelKeyServerClaimName, ServerClaim.Name)),
+				HaveField("Labels", HaveKeyWithValue(validation.LabelKeyServerClaimName, serverClaim.Name)),
 				HaveField("Labels", HaveKeyWithValue(validation.LabelKeyServerClaimNamespace, ns.Name)),
 				HaveField("OwnerReferences", ContainElement(
 					metav1.OwnerReference{
 						APIVersion: metalv1alpha1.GroupVersion.String(),
 						Kind:       "ServerClaim",
-						Name:       ServerClaim.Name,
-						UID:        ServerClaim.UID,
+						Name:       serverClaim.Name,
+						UID:        serverClaim.UID,
 					},
 				)),
 				HaveField("Spec.PoolRef", BeElementOf([]corev1.TypedLocalObjectReference{
@@ -312,6 +331,13 @@ var _ = Describe("CreateMachine", func() {
 				)))
 			DeferCleanup(k8sClient.Delete, ipClaim)
 		}
+
+		By("ensuring the cleanup of the machine")
+		DeferCleanup((*drv).DeleteMachine, &driver.DeleteMachineRequest{
+			Machine:      newMachine(ns, "machine", -1, nil),
+			MachineClass: newMachineClass(v1alpha1.ProviderName, testing.SampleProviderSpec),
+			Secret:       providerSecret,
+		})
 
 		// TODO needs to go to initialize machine test
 		// By("ensuring that the ignition secret has been created")
@@ -420,6 +446,13 @@ var _ = Describe("CreateMachine with Server name as hostname", func() {
 			}),
 		))
 
+		By("ensuring the cleanup of the machine")
+		DeferCleanup((*drv).DeleteMachine, &driver.DeleteMachineRequest{
+			Machine:      newMachine(ns, "machine", -1, nil),
+			MachineClass: newMachineClass(v1alpha1.ProviderName, testing.SampleProviderSpec),
+			Secret:       providerSecret,
+		})
+
 		// TODO needs to go to initialize machine test
 		// By("ensuring that the ignition secret has been created")
 		// ignition := &corev1.Secret{
@@ -463,7 +496,14 @@ var _ = Describe("CreateMachine with Server name as hostname", func() {
 			Secret:       providerSecret,
 		})
 		Expect(err).To(HaveOccurred())
-		Expect(err).To(MatchError(status.Error(codes.NotFound, fmt.Sprintf(`server %q in namespace %q is still not claimed`, machineName, ns.Name))))
+		Expect(err).To(MatchError(status.Error(codes.Unavailable, fmt.Sprintf(`server %q in namespace %q is still not claimed`, machineName, ns.Name))))
+
+		By("ensuring the cleanup of the machine")
+		DeferCleanup((*drv).DeleteMachine, &driver.DeleteMachineRequest{
+			Machine:      newMachine(ns, "machine", -1, nil),
+			MachineClass: newMachineClass(v1alpha1.ProviderName, testing.SampleProviderSpec),
+			Secret:       providerSecret,
+		})
 	})
 })
 
@@ -507,7 +547,25 @@ var _ = Describe("CreateMachine using BMC names", func() {
 			MachineClass: newMachineClass(v1alpha1.ProviderName, testing.SampleProviderSpec),
 			Secret:       providerSecret,
 		})
+
 		Expect(err).To(HaveOccurred())
-		Expect(err).To(MatchError(status.Error(codes.NotFound, fmt.Sprintf(`server %q in namespace %q is still not claimed`, machineName, ns.Name))))
+		Expect(err).To(MatchError(status.Error(codes.Unavailable, fmt.Sprintf(`server %q in namespace %q is still not claimed`, machineName, ns.Name))))
+
+		By("ensuring that a server claim has been created and has the recreate annotation")
+		serverClaim := &metalv1alpha1.ServerClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      machineName,
+				Namespace: ns.Name,
+			},
+		}
+
+		Eventually(Object(serverClaim)).Should(HaveField("ObjectMeta.Annotations", HaveKeyWithValue(validation.AnnotationMCMMachineRecreate, "true")))
+
+		By("ensuring the cleanup of the machine")
+		DeferCleanup((*drv).DeleteMachine, &driver.DeleteMachineRequest{
+			Machine:      newMachine(ns, "machine", -1, nil),
+			MachineClass: newMachineClass(v1alpha1.ProviderName, testing.SampleProviderSpec),
+			Secret:       providerSecret,
+		})
 	})
 })

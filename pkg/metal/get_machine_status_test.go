@@ -73,18 +73,24 @@ var _ = Describe("GetMachineStatus", func() {
 
 		// TODO: This is a workaround, to be reworked
 		By("ensuring the machine status")
-		_, err = (*drv).GetMachineStatus(ctx, &driver.GetMachineStatusRequest{
+		response, err := (*drv).GetMachineStatus(ctx, &driver.GetMachineStatusRequest{
 			Machine:      newMachine(ns, "machine", -1, nil),
 			MachineClass: newMachineClass(v1alpha1.ProviderName, testing.SampleProviderSpec),
 			Secret:       providerSecret,
 		})
-		Expect(err).To(HaveOccurred())
-		Expect(err).Should(MatchError(status.Error(codes.NotFound, fmt.Sprintf("server claim %q is not powered on", "machine-0"))))
 
-		// .To(Equal(&driver.GetMachineStatusResponse{
-		// 	ProviderID: fmt.Sprintf("%s://%s/machine-%d", v1alpha1.ProviderName, ns.Name, 0),
-		// 	NodeName:   "machine-0",
-		// }))
+		Expect(err).ToNot(HaveOccurred())
+		Expect(response).To(Equal(&driver.GetMachineStatusResponse{
+			ProviderID: fmt.Sprintf("%s://%s/machine-%d", v1alpha1.ProviderName, ns.Name, 0),
+			NodeName:   "machine-0",
+		}))
+
+		By("ensuring the cleanup of the machine")
+		DeferCleanup((*drv).DeleteMachine, &driver.DeleteMachineRequest{
+			Machine:      newMachine(ns, "machine", -1, nil),
+			MachineClass: newMachineClass(v1alpha1.ProviderName, testing.SampleProviderSpec),
+			Secret:       providerSecret,
+		})
 	})
 })
 
@@ -142,7 +148,14 @@ var _ = Describe("GetMachineStatus using Server names", func() {
 			Secret:       providerSecret,
 		})
 		Expect(err).To(HaveOccurred())
-		Expect(err).Should(MatchError(status.Error(codes.NotFound, fmt.Sprintf("server claim %q is not powered on", machineName))))
+		Expect(err).Should(MatchError(status.Error(codes.NotFound, fmt.Sprintf("server claim %q is marked for recreation", machineName))))
+
+		By("ensuring the cleanup of the machine")
+		DeferCleanup((*drv).DeleteMachine, &driver.DeleteMachineRequest{
+			Machine:      newMachine(ns, "machine", -1, nil),
+			MachineClass: newMachineClass(v1alpha1.ProviderName, testing.SampleProviderSpec),
+			Secret:       providerSecret,
+		})
 
 		// })).To(Equal(&driver.GetMachineStatusResponse{
 		// 	ProviderID: fmt.Sprintf("%s://%s/machine-%d", v1alpha1.ProviderName, ns.Name, 0),
@@ -223,7 +236,15 @@ var _ = Describe("GetMachineStatus using BMC names", func() {
 			Secret:       providerSecret,
 		})
 		Expect(err).To(HaveOccurred())
-		Expect(err).Should(MatchError(status.Error(codes.NotFound, fmt.Sprintf("server claim %q is not powered on", machineName))))
+		Expect(err).Should(MatchError(status.Error(codes.NotFound, fmt.Sprintf("server claim %q is marked for recreation", machineName))))
+
+		By("ensuring the cleanup of the machine")
+		DeferCleanup((*drv).DeleteMachine, &driver.DeleteMachineRequest{
+			Machine:      newMachine(ns, "machine", -1, nil),
+			MachineClass: newMachineClass(v1alpha1.ProviderName, testing.SampleProviderSpec),
+			Secret:       providerSecret,
+		})
+
 		// .To(Equal(&driver.GetMachineStatusResponse{
 		// 	ProviderID: fmt.Sprintf("%s://%s/machine-%d", v1alpha1.ProviderName, ns.Name, 0),
 		// 	NodeName:   bmc.Name,
