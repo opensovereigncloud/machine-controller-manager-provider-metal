@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"maps"
 
-	apiv1alpha1 "github.com/ironcore-dev/machine-controller-manager-provider-ironcore-metal/pkg/api/v1alpha1"
-
 	"github.com/gardener/machine-controller-manager/pkg/util/provider/driver"
 	"github.com/gardener/machine-controller-manager/pkg/util/provider/machinecodes/codes"
 	"github.com/gardener/machine-controller-manager/pkg/util/provider/machinecodes/status"
@@ -242,7 +240,7 @@ var _ = Describe("CreateMachine", func() {
 
 	It("should fail if the IPAM ref is not set", func(ctx SpecContext) {
 		providerSpec := maps.Clone(testing.SampleProviderSpec)
-		providerSpec["ipamConfig"] = []apiv1alpha1.IPAMConfig{
+		providerSpec["ipamConfig"] = []v1alpha1.IPAMConfig{
 			{
 				MetadataKey: "foo",
 			},

@@ -18,7 +18,6 @@ import (
 	gardenermachinev1alpha1 "github.com/gardener/machine-controller-manager/pkg/apis/machine/v1alpha1"
 	"github.com/ironcore-dev/controller-utils/modutils"
 	"github.com/ironcore-dev/machine-controller-manager-provider-ironcore-metal/pkg/api/v1alpha1"
-	apiv1alpha1 "github.com/ironcore-dev/machine-controller-manager-provider-ironcore-metal/pkg/api/v1alpha1"
 	metalv1alpha1 "github.com/ironcore-dev/metal-operator/api/v1alpha1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -220,18 +219,18 @@ func newIPRef(machineName, ns, metadataKey string, providerSpec map[string]inter
 		},
 	}
 	if providerSpec != nil {
-		ipamConfig := apiv1alpha1.IPAMConfig{
+		ipamConfig := v1alpha1.IPAMConfig{
 			MetadataKey: metadataKey,
-			IPAMRef: &apiv1alpha1.IPAMObjectReference{
+			IPAMRef: &v1alpha1.IPAMObjectReference{
 				APIGroup: "ipam.cluster.x-k8s.io",
 				Kind:     "GlobalInClusterIPPool",
 				Name:     ipAddressClaimName,
 			},
 		}
 		if providerSpec["ipamConfig"] != nil {
-			providerSpec["ipamConfig"] = append(providerSpec["ipamConfig"].([]apiv1alpha1.IPAMConfig), ipamConfig)
+			providerSpec["ipamConfig"] = append(providerSpec["ipamConfig"].([]v1alpha1.IPAMConfig), ipamConfig)
 		} else {
-			providerSpec["ipamConfig"] = []apiv1alpha1.IPAMConfig{ipamConfig}
+			providerSpec["ipamConfig"] = []v1alpha1.IPAMConfig{ipamConfig}
 		}
 	}
 

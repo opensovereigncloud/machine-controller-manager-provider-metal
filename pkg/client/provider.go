@@ -25,7 +25,7 @@ import (
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
-type ClientFunc func(client client.Client) error
+type syncClientFunc func(client client.Client) error
 
 type Provider struct {
 	Client         client.Client
@@ -61,7 +61,7 @@ func NewProviderAndNamespace(ctx context.Context, kubeconfigPath string) (*Provi
 	return cp, namespace, nil
 }
 
-func (p *Provider) SyncClient(fn ClientFunc) error {
+func (p *Provider) SyncClient(fn syncClientFunc) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.Client == nil {
