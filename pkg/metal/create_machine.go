@@ -69,12 +69,17 @@ func (d *metalDriver) CreateMachine(ctx context.Context, req *driver.CreateMachi
 
 		if !claimed {
 			klog.V(3).Info("server is still not claimed, patching ServerClaim with recreate annotation", "name", serverClaim.Name, "namespace", serverClaim.Namespace)
-			err = d.patchServerClaimWithRecreateAnnotation(ctx, serverClaim)
+			err = d.patchServerClaimWithRecreateAnnotation(ctx, serverClaim, true)
 			if err != nil {
 				return nil, status.Error(codes.Internal, fmt.Sprintf("failed to patch ServerClaim with recreate annotation: %v", err))
 			}
 			// workaround: codes.Unavailable will ensure a short retry in 5 seconds
 			return nil, status.Error(codes.Unavailable, fmt.Sprintf("server %q in namespace %q is still not claimed", req.Machine.Name, d.metalNamespace))
+		} else {
+			err = d.patchServerClaimWithRecreateAnnotation(ctx, serverClaim, false)
+			if err != nil {
+				return nil, status.Error(codes.Internal, fmt.Sprintf("failed to patch ServerClaim without recreate annotation: %v", err))
+			}
 		}
 	}
 
@@ -208,15 +213,19 @@ func (d *metalDriver) createServerClaim(ctx context.Context, claim *metalv1alpha
 }
 
 // patchServerClaimWithRecreateAnnotation patches the ServerClaim with an annotation to trigger a machine recreation
-func (d *metalDriver) patchServerClaimWithRecreateAnnotation(ctx context.Context, serverClaim *metalv1alpha1.ServerClaim) error {
+func (d *metalDriver) patchServerClaimWithRecreateAnnotation(ctx context.Context, serverClaim *metalv1alpha1.ServerClaim, addAnnotation bool) error {
 	klog.V(3).Info("patching ServerClaim with recreate annotation", "name", serverClaim.Name, "namespace", serverClaim.Namespace)
 
 	if err := d.clientProvider.SyncClient(func(metalClient client.Client) error {
 		baseServerClaim := serverClaim.DeepCopy()
-		if serverClaim.Annotations == nil {
-			serverClaim.Annotations = make(map[string]string)
+		if addAnnotation {
+			if serverClaim.Annotations == nil {
+				serverClaim.Annotations = make(map[string]string)
+			}
+			serverClaim.Annotations[validation.AnnotationKeyMCMMachineRecreate] = "true"
+		} else {
+			delete(serverClaim.Annotations, validation.AnnotationKeyMCMMachineRecreate)
 		}
-		serverClaim.Annotations[validation.AnnotationMCMMachineRecreate] = "true"
 		return metalClient.Patch(ctx, serverClaim, client.MergeFrom(baseServerClaim))
 	}); err != nil {
 		return status.Error(codes.Internal, fmt.Sprintf("failed to create ServerClaim: %s", err.Error()))

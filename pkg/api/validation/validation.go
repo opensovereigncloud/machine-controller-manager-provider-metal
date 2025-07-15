@@ -12,14 +12,13 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	capiv1beta1 "sigs.k8s.io/cluster-api/exp/ipam/api/v1beta1"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 const (
 	LabelKeyServerClaimName      = "metal.ironcore.dev/server-claim-name"
 	LabelKeyServerClaimNamespace = "metal.ironcore.dev/server-claim-namespace"
 
-	AnnotationMCMMachineRecreate = "metal.ironcore.dev/mcm-machine-recreate"
+	AnnotationKeyMCMMachineRecreate = "metal.ironcore.dev/mcm-machine-recreate"
 )
 
 // ValidateProviderSpecAndSecret validates the provider spec and provider secret
@@ -66,7 +65,7 @@ func validateMachineClassSpec(spec *v1alpha1.ProviderSpec, fldPath *field.Path) 
 }
 
 // ValidateIPAddressClaim validates the IPAddressClaim for a given machine
-func ValidateIPAddressClaim(ipClaim *capiv1beta1.IPAddressClaim, metalNamespace, machineName string, ipAddrClaimKey client.ObjectKey) field.ErrorList {
+func ValidateIPAddressClaim(ipClaim *capiv1beta1.IPAddressClaim, metalNamespace, machineName string) field.ErrorList {
 	var allErrs field.ErrorList
 
 	if ipClaim.Status.AddressRef.Name == "" {

@@ -228,6 +228,18 @@ var _ = Describe("CreateMachine", func() {
 		Expect(err).Should(MatchError(status.Error(codes.InvalidArgument, `requested provider "foo" is not supported by the driver "ironcore-metal"`)))
 	})
 
+	It("should fail if the provided secret do not contain userData", func(ctx SpecContext) {
+		By("failing if the provided secret do not contain userData")
+		notCompleteSecret := providerSecret.DeepCopy()
+		notCompleteSecret.Data["userData"] = nil
+		_, err := (*drv).CreateMachine(ctx, &driver.CreateMachineRequest{
+			Machine:      newMachine(ns, "machine", -1, nil),
+			MachineClass: newMachineClass(v1alpha1.ProviderName, testing.SampleProviderSpec),
+			Secret:       notCompleteSecret,
+		})
+		Expect(err).Should(MatchError(status.Error(codes.Internal, `failed to get provider spec: failed to validate provider spec and secret: [userData: Required value: userData is required]`)))
+	})
+
 	It("should fail if the IPAM ref is not set", func(ctx SpecContext) {
 		providerSpec := maps.Clone(testing.SampleProviderSpec)
 		providerSpec["ipamConfig"] = []apiv1alpha1.IPAMConfig{
@@ -559,7 +571,7 @@ var _ = Describe("CreateMachine using BMC names", func() {
 			},
 		}
 
-		Eventually(Object(serverClaim)).Should(HaveField("ObjectMeta.Annotations", HaveKeyWithValue(validation.AnnotationMCMMachineRecreate, "true")))
+		Eventually(Object(serverClaim)).Should(HaveField("ObjectMeta.Annotations", HaveKeyWithValue(validation.AnnotationKeyMCMMachineRecreate, "true")))
 
 		By("ensuring the cleanup of the machine")
 		DeferCleanup((*drv).DeleteMachine, &driver.DeleteMachineRequest{

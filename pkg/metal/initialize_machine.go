@@ -44,24 +44,6 @@ func (d *metalDriver) InitializeMachine(ctx context.Context, req *driver.Initial
 		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to get provider spec: %v", err))
 	}
 
-	addressesMetaData := make(map[string]any)
-	unavailable, err := d.getIPAddressClaimsMetadata(ctx, req, providerSpec, addressesMetaData)
-	if err != nil {
-		if unavailable {
-			return nil, status.Error(codes.Unavailable, fmt.Sprintf("IPAddressClaim(s) still pending: %v", err))
-		}
-		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to get IPAddressClaims: %v", err))
-	}
-
-	ignitionSecret, err := d.generateIgnitionSecret(ctx, req, req.Machine.Name, providerSpec, addressesMetaData, nil)
-	if err != nil {
-		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to generate ignition secret: %v", err))
-	}
-
-	if err = d.createIgnitionSecret(ctx, ignitionSecret); err != nil {
-		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to create ignition secret: %v", err))
-	}
-
 	serverClaim, unavailable, err := d.getServerClaim(ctx, req)
 	if err != nil {
 		if unavailable {
@@ -71,11 +53,16 @@ func (d *metalDriver) InitializeMachine(ctx context.Context, req *driver.Initial
 		}
 	}
 
-	// if err = d.updateIgnitionRefInServerClaim(ctx, serverClaim, ignitionSecret); err != nil {
-	// 	return nil, status.Error(codes.Internal, fmt.Sprintf("failed to update ServerClaim with ignition reference: %v", err))
-	// }
+	addressesMetaData := make(map[string]any)
+	unavailable, err = d.getIPAddressClaimsMetadata(ctx, req, providerSpec, addressesMetaData)
+	if err != nil {
+		if unavailable {
+			return nil, status.Error(codes.Unavailable, fmt.Sprintf("IPAddressClaim(s) still pending: %v", err))
+		}
+		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to get IPAddressClaims: %v", err))
+	}
 
-	if err := d.updateIgnitionAndPowerOnServer(ctx, req, serverClaim, providerSpec, addressesMetaData); err != nil {
+	if err := d.createIgnitionAndPowerOnServer(ctx, req, serverClaim, providerSpec, addressesMetaData); err != nil {
 		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to update ignition and power on server: %v", err))
 	}
 
@@ -99,36 +86,46 @@ func isEmptyInitializeRequest(req *driver.InitializeMachineRequest) bool {
 func (d *metalDriver) getIPAddressClaimsMetadata(ctx context.Context, req *driver.InitializeMachineRequest, providerSpec *apiv1alpha1.ProviderSpec, addressesMetaData map[string]any) (bool, error) {
 	for _, ipamConfig := range providerSpec.IPAMConfig {
 		ipAddrClaimName := getIPAddressClaimName(req.Machine.Name, ipamConfig.MetadataKey)
-		ipAddrClaimKey := client.ObjectKey{Namespace: d.metalNamespace, Name: ipAddrClaimName}
-		ipClaim := &capiv1beta1.IPAddressClaim{}
+		ipClaim := &capiv1beta1.IPAddressClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      ipAddrClaimName,
+				Namespace: d.metalNamespace,
+			},
+		}
 
 		if err := d.clientProvider.SyncClient(func(metalClient client.Client) error {
-			return metalClient.Get(ctx, ipAddrClaimKey, ipClaim)
+			return metalClient.Get(ctx, client.ObjectKeyFromObject(ipClaim), ipClaim)
 		}); err != nil {
 			return false, fmt.Errorf("failed to get IPAddressClaim %q: %w", client.ObjectKeyFromObject(ipClaim), err)
 		}
 
-		klog.V(3).Info("validating IPAddressClaim", "namespace", ipAddrClaimKey.Namespace, "name", ipAddrClaimKey.Name)
+		klog.V(3).Info("validating IPAddressClaim", "namespace", ipClaim.Namespace, "name", ipClaim.Name)
 
-		validationErr := validation.ValidateIPAddressClaim(ipClaim, d.metalNamespace, req.Machine.Name, ipAddrClaimKey)
+		validationErr := validation.ValidateIPAddressClaim(ipClaim, d.metalNamespace, req.Machine.Name)
 		if validationErr.ToAggregate() != nil && len(validationErr.ToAggregate().Errors()) > 0 {
 			return true, fmt.Errorf("failed to validate IPAddressClaim, still pending: %v", validationErr.ToAggregate().Errors())
 		}
 
-		ipAddrKey := client.ObjectKey{Namespace: ipClaim.Namespace, Name: ipClaim.Status.AddressRef.Name}
-		ipAddr := &capiv1beta1.IPAddress{}
+		ipAddr := &capiv1beta1.IPAddress{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      ipClaim.Status.AddressRef.Name,
+				Namespace: ipClaim.Namespace,
+			},
+		}
+
 		if err := d.clientProvider.SyncClient(func(metalClient client.Client) error {
-			return metalClient.Get(ctx, ipAddrKey, ipAddr)
+			return metalClient.Get(ctx, client.ObjectKeyFromObject(ipAddr), ipAddr)
 		}); err != nil {
 			return false, fmt.Errorf("failed to get IPAddress %q: %w", client.ObjectKeyFromObject(ipAddr), err)
 		}
+
 		addressesMetaData[ipamConfig.MetadataKey] = map[string]any{
 			"ip":      ipAddr.Spec.Address,
 			"prefix":  ipAddr.Spec.Prefix,
 			"gateway": ipAddr.Spec.Gateway,
 		}
 
-		klog.V(3).Info("IP metadata found and added metadata", "namespace", ipAddrKey.Namespace, "name", ipAddrKey.Name, "ip", ipAddr.Spec.Address, "prefix", ipAddr.Spec.Prefix, "gateway", ipAddr.Spec.Gateway)
+		klog.V(3).Info("IP metadata found and added metadata", "namespace", ipAddr.Namespace, "name", ipAddr.Name, "ip", ipAddr.Spec.Address, "prefix", ipAddr.Spec.Prefix, "gateway", ipAddr.Spec.Gateway)
 	}
 
 	klog.V(3).Info("successfully processed all IPs", "count", len(providerSpec.IPAMConfig))
@@ -193,42 +190,9 @@ func (d *metalDriver) generateIgnitionSecret(ctx context.Context, req *driver.In
 	return ignitionSecret, nil
 }
 
-// createIgnitionSecret creates and applies an Ignition Secret CR with proper ignition data
-func (d *metalDriver) createIgnitionSecret(ctx context.Context, ignitionSecret *corev1.Secret) error {
-	klog.V(3).Info("creating Ignition Secret", "name", ignitionSecret.Name, "namespace", ignitionSecret.Namespace)
-
-	if err := d.clientProvider.SyncClient(func(metalClient client.Client) error {
-		return metalClient.Patch(ctx, ignitionSecret, client.Apply, fieldOwner, client.ForceOwnership)
-	}); err != nil {
-		return fmt.Errorf("error applying ignition Secret: %w", err)
-	}
-
-	return nil
-}
-
-// updateIgnitionRefInServerClaim updates the ServerClaim with a reference to the ignition secret
-// func (d *metalDriver) updateIgnitionRefInServerClaim(ctx context.Context, serverClaim *metalv1alpha1.ServerClaim, ignitionSecret *corev1.Secret) error {
-// 	klog.V(3).Info("updating ServerClaim with ignition reference", "name", client.ObjectKeyFromObject(serverClaim))
-
-// 	if serverClaim.Spec.IgnitionSecretRef == nil || serverClaim.Spec.IgnitionSecretRef.Name != ignitionSecret.Name {
-// 		serverClaimBase := serverClaim.DeepCopy()
-// 		serverClaim.Spec.IgnitionSecretRef = &corev1.LocalObjectReference{
-// 			Name: ignitionSecret.Name,
-// 		}
-
-// 		if err := d.clientProvider.SyncClient(func(metalClient client.Client) error {
-// 			return metalClient.Patch(ctx, serverClaim, client.MergeFrom(serverClaimBase))
-// 		}); err != nil {
-// 			return fmt.Errorf("failed to patch ServerClaim: %w", err)
-// 		}
-// 	}
-
-// 	return nil
-// }
-
-// updateIgnitionAndPowerOnServer updates the ignition secret in the ServerClaim and powers on the server
-func (d *metalDriver) updateIgnitionAndPowerOnServer(ctx context.Context, req *driver.InitializeMachineRequest, serverClaim *metalv1alpha1.ServerClaim, providerSpec *apiv1alpha1.ProviderSpec, addressesMetaData map[string]any) error {
-	klog.V(3).Info("updating ignition and powering on server", "name", client.ObjectKeyFromObject(serverClaim))
+// createIgnitionAndPowerOnServer creates the ignition secret for the server and powers it on
+func (d *metalDriver) createIgnitionAndPowerOnServer(ctx context.Context, req *driver.InitializeMachineRequest, serverClaim *metalv1alpha1.ServerClaim, providerSpec *apiv1alpha1.ProviderSpec, addressesMetaData map[string]any) error {
+	klog.V(3).Info("creating ignition Secret and powering on server", "severClaimName", client.ObjectKeyFromObject(serverClaim))
 
 	nodeName, err := getNodeName(ctx, d.nodeNamePolicy, serverClaim, d.metalNamespace, d.clientProvider)
 	if err != nil {
@@ -250,6 +214,8 @@ func (d *metalDriver) updateIgnitionAndPowerOnServer(ctx context.Context, req *d
 	}); err != nil {
 		return err
 	}
+
+	klog.V(3).Info("setting ingnition Secret reference to the ServerClaim", "serverClaimName", client.ObjectKeyFromObject(serverClaim), "ignitionSecretName", client.ObjectKeyFromObject(ignitionSecret))
 
 	serverClaimBase := serverClaim.DeepCopy()
 	serverClaim.Spec.Power = metalv1alpha1.PowerOn

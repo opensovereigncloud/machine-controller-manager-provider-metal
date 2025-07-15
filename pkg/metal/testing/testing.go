@@ -39,55 +39,6 @@ var (
 		},
 	}
 
-	// SampleProviderSpecWithIPAM = map[string]interface{}{
-	// 	"labels": map[string]string{
-	// 		"shoot-name":      "my-shoot",
-	// 		"shoot-namespace": "my-shoot-namespace",
-	// 	},
-	// 	"machineClassName": "foo",
-	// 	"machinePoolName":  "foo",
-	// 	"serverLabels": map[string]string{
-	// 		"instance-type": "bar",
-	// 	},
-	// 	"ignitionSecret": map[string]string{
-	// 		"name": "foo",
-	// 	},
-	// 	"metaData": map[string]any{
-	// 		"foo": "bar",
-	// 		"baz": "100",
-	// 	},
-	// 	"image":             "my-image",
-	// 	"ignitionSecretKey": "ignition",
-	// 	"ignition": `passwd:
-	// users:
-	//   - groups: [group1]
-	//     name: xyz
-	//     sshAuthorizedKeys: ssh-ed25519 AAABC3NzaC1lZDI1NTE5AAAAIGqrmrq1XwWnPJoSsAeuVcDQNqA5XQK
-	//     shell: /bin/bash`,
-	// 	"dnsServers": []net.IP{
-	// 		net.ParseIP("1.2.3.4"),
-	// 		net.ParseIP("5.6.7.8"),
-	// 	},
-	// 	"ipamConfig": []apiv1alpha1.IPAMConfig{
-	// 		{
-	// 			MetadataKey: "foo",
-	// 			IPAMRef: &apiv1alpha1.IPAMObjectReference{
-	// 				APIGroup: "metal.ironcore.dev",
-	// 				Kind:     "IPAddressClaim",
-	// 				Name:     "foo-address",
-	// 			},
-	// 		},
-	// 		{
-	// 			MetadataKey: "bar",
-	// 			IPAMRef: &apiv1alpha1.IPAMObjectReference{
-	// 				APIGroup: "metal.ironcore.dev",
-	// 				Kind:     "IPAddressClaim",
-	// 				Name:     "bar-address",
-	// 			},
-	// 		},
-	// 	},
-	// }
-
 	SampleIgnition = map[string]interface{}{
 		"ignition": map[string]interface{}{
 			"version": "3.2.0",

@@ -42,16 +42,15 @@ func (d *metalDriver) GetMachineStatus(ctx context.Context, req *driver.GetMachi
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 
-	if len(serverClaim.Annotations) > 0 && serverClaim.Annotations[validation.AnnotationMCMMachineRecreate] == "true" {
-		// workaround: NotFound/Unimplemented triggers machine create flow
+	if len(serverClaim.Annotations) > 0 && serverClaim.Annotations[validation.AnnotationKeyMCMMachineRecreate] == "true" {
+		// MCM provider retry with codes.NotFound which triggers machine create flow
 		return nil, status.Error(codes.NotFound, fmt.Sprintf("server claim %q is marked for recreation", req.Machine.Name))
 	}
 
-	// TODO: To be reworked, this has to go in initialization phase
-	// if serverClaim.Spec.Power != metalv1alpha1.PowerOn {
-	// 	// workaround: NotFound/Unimplemented triggers machine create flow
-	// 	return nil, status.Error(codes.NotFound, fmt.Sprintf("server claim %q is not powered on", req.Machine.Name))
-	// }
+	if serverClaim.Spec.Power != metalv1alpha1.PowerOn {
+		// MCM provider retry with codes.Uninitialized which triggers machine initialization flow
+		return nil, status.Error(codes.Uninitialized, fmt.Sprintf("server claim %q is still not powered on, will reinitialize", req.Machine.Name))
+	}
 
 	nodeName, err := getNodeName(ctx, d.nodeNamePolicy, serverClaim, d.metalNamespace, d.clientProvider)
 	if err != nil {

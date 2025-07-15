@@ -6,6 +6,7 @@ package metal
 import (
 	"context"
 	"fmt"
+	"maps"
 
 	"github.com/gardener/machine-controller-manager/pkg/util/provider/driver"
 	"github.com/gardener/machine-controller-manager/pkg/util/provider/machinecodes/codes"
@@ -35,9 +36,7 @@ func (d *metalDriver) ListMachines(ctx context.Context, req *driver.ListMachines
 
 	serverClaimList := &metalv1alpha1.ServerClaimList{}
 	matchingLabels := client.MatchingLabels{}
-	for k, v := range providerSpec.Labels {
-		matchingLabels[k] = v
-	}
+	maps.Copy(matchingLabels, providerSpec.Labels)
 
 	if err = d.clientProvider.SyncClient(func(metalClient client.Client) error {
 		return metalClient.List(ctx, serverClaimList, client.InNamespace(d.metalNamespace), matchingLabels)

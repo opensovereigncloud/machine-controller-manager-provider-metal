@@ -7,6 +7,8 @@ import (
 	"fmt"
 
 	"github.com/gardener/machine-controller-manager/pkg/util/provider/driver"
+	"github.com/gardener/machine-controller-manager/pkg/util/provider/machinecodes/codes"
+	"github.com/gardener/machine-controller-manager/pkg/util/provider/machinecodes/status"
 	"github.com/ironcore-dev/machine-controller-manager-provider-ironcore-metal/pkg/api/v1alpha1"
 	"github.com/ironcore-dev/machine-controller-manager-provider-ironcore-metal/pkg/cmd"
 	"github.com/ironcore-dev/machine-controller-manager-provider-ironcore-metal/pkg/metal/testing"
@@ -73,7 +75,16 @@ var _ = Describe("InitializeMachine", func() {
 			HaveField("Spec.Power", metalv1alpha1.PowerOff),
 		))
 
-		By("initialize machine")
+		By("failing on initialize machine on first try, ServerClaim still not claimed")
+		_, err := (*drv).InitializeMachine(ctx, &driver.InitializeMachineRequest{
+			Machine:      newMachine(ns, "machine", -1, nil),
+			MachineClass: newMachineClass(v1alpha1.ProviderName, testing.SampleProviderSpec),
+			Secret:       providerSecret,
+		})
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("does not have a server reference"))
+
+		By("retrying initialize machine")
 		Eventually(func(g Gomega) {
 			g.Expect((*drv).InitializeMachine(ctx, &driver.InitializeMachineRequest{
 				Machine:      newMachine(ns, "machine", -1, nil),
@@ -95,5 +106,43 @@ var _ = Describe("InitializeMachine", func() {
 			MachineClass: newMachineClass(v1alpha1.ProviderName, testing.SampleProviderSpec),
 			Secret:       providerSecret,
 		})
+	})
+
+	It("should fail if the machine request is empty", func(ctx SpecContext) {
+		By("failing if the machine request is empty")
+		_, err := (*drv).InitializeMachine(ctx, nil)
+		Expect(err).Should(MatchError(status.Error(codes.InvalidArgument, "received empty InitializeMachineRequest")))
+	})
+
+	It("should fail if the machine request is not complete", func(ctx SpecContext) {
+		By("failing if the machine request is not complete")
+		_, err := (*drv).InitializeMachine(ctx, &driver.InitializeMachineRequest{
+			Machine:      newMachine(ns, "machine", -1, nil),
+			MachineClass: nil,
+			Secret:       providerSecret,
+		})
+		Expect(err).Should(MatchError(status.Error(codes.InvalidArgument, "received empty InitializeMachineRequest")))
+	})
+
+	It("should fail if the machine request has a wrong provider", func(ctx SpecContext) {
+		By("failing if the wrong provider is set")
+		_, err := (*drv).InitializeMachine(ctx, &driver.InitializeMachineRequest{
+			Machine:      newMachine(ns, "machine", -1, nil),
+			MachineClass: newMachineClass("foo", testing.SampleProviderSpec),
+			Secret:       providerSecret,
+		})
+		Expect(err).Should(MatchError(status.Error(codes.InvalidArgument, `requested provider "foo" is not supported by the driver "ironcore-metal"`)))
+	})
+
+	It("should fail if the provided secret do not contain userData", func(ctx SpecContext) {
+		By("failing if the provided secret do not contain userData")
+		notCompleteSecret := providerSecret.DeepCopy()
+		notCompleteSecret.Data["userData"] = nil
+		_, err := (*drv).InitializeMachine(ctx, &driver.InitializeMachineRequest{
+			Machine:      newMachine(ns, "machine", -1, nil),
+			MachineClass: newMachineClass(v1alpha1.ProviderName, testing.SampleProviderSpec),
+			Secret:       notCompleteSecret,
+		})
+		Expect(err).Should(MatchError(status.Error(codes.Internal, `failed to get provider spec: failed to validate provider spec and secret: [userData: Required value: userData is required]`)))
 	})
 })

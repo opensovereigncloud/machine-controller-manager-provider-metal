@@ -25,6 +25,7 @@ var _ = Describe("GetMachineStatus", func() {
 	ns, providerSecret, drv := SetupTest(cmd.NodeNamePolicyServerClaimName)
 
 	It("should create a machine and ensure status", func(ctx SpecContext) {
+		machineName := "machine-0"
 		By("creating a server")
 		server := &metalv1alpha1.Server{
 			ObjectMeta: metav1.ObjectMeta{
@@ -53,7 +54,7 @@ var _ = Describe("GetMachineStatus", func() {
 			serverClaim := &metalv1alpha1.ServerClaim{
 				ObjectMeta: metav1.ObjectMeta{
 					Namespace: ns.Name,
-					Name:      "machine-0",
+					Name:      machineName,
 				},
 			}
 			Eventually(Update(serverClaim, func() {
@@ -68,22 +69,31 @@ var _ = Describe("GetMachineStatus", func() {
 			Secret:       providerSecret,
 		})).To(Equal(&driver.CreateMachineResponse{
 			ProviderID: fmt.Sprintf("%s://%s/machine-%d", v1alpha1.ProviderName, ns.Name, 0),
-			NodeName:   "machine-0",
+			NodeName:   machineName,
 		}))
 
-		// TODO: This is a workaround, to be reworked
 		By("ensuring the machine status")
-		response, err := (*drv).GetMachineStatus(ctx, &driver.GetMachineStatusRequest{
+		_, err = (*drv).GetMachineStatus(ctx, &driver.GetMachineStatusRequest{
 			Machine:      newMachine(ns, "machine", -1, nil),
 			MachineClass: newMachineClass(v1alpha1.ProviderName, testing.SampleProviderSpec),
 			Secret:       providerSecret,
 		})
 
-		Expect(err).ToNot(HaveOccurred())
-		Expect(response).To(Equal(&driver.GetMachineStatusResponse{
-			ProviderID: fmt.Sprintf("%s://%s/machine-%d", v1alpha1.ProviderName, ns.Name, 0),
-			NodeName:   "machine-0",
-		}))
+		Expect(err).To(HaveOccurred())
+		Expect(err).Should(MatchError(status.Error(codes.Uninitialized, fmt.Sprintf("server claim %q is still not powered on, will reinitialize", machineName))))
+
+		Eventually(func(g Gomega) {
+			cmResponse, err := (*drv).InitializeMachine(ctx, &driver.InitializeMachineRequest{
+				Machine:      newMachine(ns, "machine", -1, nil),
+				MachineClass: newMachineClass(v1alpha1.ProviderName, testing.SampleProviderSpec),
+				Secret:       providerSecret,
+			})
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(cmResponse).To(Equal(&driver.InitializeMachineResponse{
+				ProviderID: fmt.Sprintf("%s://%s/machine-%d", v1alpha1.ProviderName, ns.Name, 0),
+				NodeName:   machineName,
+			}))
+		}).Should(Succeed())
 
 		By("ensuring the cleanup of the machine")
 		DeferCleanup((*drv).DeleteMachine, &driver.DeleteMachineRequest{
@@ -140,7 +150,6 @@ var _ = Describe("GetMachineStatus using Server names", func() {
 			}))
 		}).Should(Succeed())
 
-		// TODO: This is a workaround, to be reworked
 		By("ensuring the machine status")
 		_, err := (*drv).GetMachineStatus(ctx, &driver.GetMachineStatusRequest{
 			Machine:      newMachine(ns, "machine", -1, nil),
@@ -148,7 +157,20 @@ var _ = Describe("GetMachineStatus using Server names", func() {
 			Secret:       providerSecret,
 		})
 		Expect(err).To(HaveOccurred())
-		Expect(err).Should(MatchError(status.Error(codes.NotFound, fmt.Sprintf("server claim %q is marked for recreation", machineName))))
+		Expect(err).Should(MatchError(status.Error(codes.Uninitialized, fmt.Sprintf("server claim %q is still not powered on, will reinitialize", machineName))))
+
+		Eventually(func(g Gomega) {
+			cmResponse, err := (*drv).InitializeMachine(ctx, &driver.InitializeMachineRequest{
+				Machine:      newMachine(ns, "machine", -1, nil),
+				MachineClass: newMachineClass(v1alpha1.ProviderName, testing.SampleProviderSpec),
+				Secret:       providerSecret,
+			})
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(cmResponse).To(Equal(&driver.InitializeMachineResponse{
+				ProviderID: fmt.Sprintf("%s://%s/machine-%d", v1alpha1.ProviderName, ns.Name, 0),
+				NodeName:   server.Name,
+			}))
+		}).Should(Succeed())
 
 		By("ensuring the cleanup of the machine")
 		DeferCleanup((*drv).DeleteMachine, &driver.DeleteMachineRequest{
@@ -156,11 +178,6 @@ var _ = Describe("GetMachineStatus using Server names", func() {
 			MachineClass: newMachineClass(v1alpha1.ProviderName, testing.SampleProviderSpec),
 			Secret:       providerSecret,
 		})
-
-		// })).To(Equal(&driver.GetMachineStatusResponse{
-		// 	ProviderID: fmt.Sprintf("%s://%s/machine-%d", v1alpha1.ProviderName, ns.Name, 0),
-		// 	NodeName:   server.Name,
-		// }))
 	})
 })
 
@@ -228,7 +245,6 @@ var _ = Describe("GetMachineStatus using BMC names", func() {
 			}))
 		}).Should(Succeed())
 
-		// TODO: This is a workaround, to be reworked
 		By("ensuring the machine status")
 		_, err := (*drv).GetMachineStatus(ctx, &driver.GetMachineStatusRequest{
 			Machine:      newMachine(ns, "machine", -1, nil),
@@ -236,7 +252,20 @@ var _ = Describe("GetMachineStatus using BMC names", func() {
 			Secret:       providerSecret,
 		})
 		Expect(err).To(HaveOccurred())
-		Expect(err).Should(MatchError(status.Error(codes.NotFound, fmt.Sprintf("server claim %q is marked for recreation", machineName))))
+		Expect(err).Should(MatchError(status.Error(codes.Uninitialized, fmt.Sprintf("server claim %q is still not powered on, will reinitialize", machineName))))
+
+		Eventually(func(g Gomega) {
+			cmResponse, err := (*drv).InitializeMachine(ctx, &driver.InitializeMachineRequest{
+				Machine:      newMachine(ns, "machine", -1, nil),
+				MachineClass: newMachineClass(v1alpha1.ProviderName, testing.SampleProviderSpec),
+				Secret:       providerSecret,
+			})
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(cmResponse).To(Equal(&driver.InitializeMachineResponse{
+				ProviderID: fmt.Sprintf("%s://%s/machine-%d", v1alpha1.ProviderName, ns.Name, 0),
+				NodeName:   bmc.Name,
+			}))
+		}).Should(Succeed())
 
 		By("ensuring the cleanup of the machine")
 		DeferCleanup((*drv).DeleteMachine, &driver.DeleteMachineRequest{
@@ -244,10 +273,5 @@ var _ = Describe("GetMachineStatus using BMC names", func() {
 			MachineClass: newMachineClass(v1alpha1.ProviderName, testing.SampleProviderSpec),
 			Secret:       providerSecret,
 		})
-
-		// .To(Equal(&driver.GetMachineStatusResponse{
-		// 	ProviderID: fmt.Sprintf("%s://%s/machine-%d", v1alpha1.ProviderName, ns.Name, 0),
-		// 	NodeName:   bmc.Name,
-		// }))
 	})
 })
