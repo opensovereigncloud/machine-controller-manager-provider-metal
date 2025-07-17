@@ -60,21 +60,21 @@ func (d *metalDriver) CreateMachine(ctx context.Context, req *driver.CreateMachi
 		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to update ownership of IPAddressClaims to ServerClaim: %v", err))
 	}
 
-	// we need the server to be claimed if not the ServerClaimName policy in order to get the node name
+	// we need the server to be bound if not the ServerClaimName policy in order to get the node name
 	if d.nodeNamePolicy != cmd.NodeNamePolicyServerClaimName {
-		claimed, err := d.ServerIsClaimed(ctx, serverClaim)
+		serverBound, err := d.ServerIsBound(ctx, serverClaim)
 		if err != nil {
-			return nil, status.Error(codes.Internal, fmt.Sprintf("failed to check if server is claimed: %v", err))
+			return nil, status.Error(codes.Internal, fmt.Sprintf("failed to check if server is bound: %v", err))
 		}
 
-		if !claimed {
-			klog.V(3).Info("server is still not claimed, patching ServerClaim with recreate annotation", "name", serverClaim.Name, "namespace", serverClaim.Namespace)
+		if !serverBound {
+			klog.V(3).Info("server is still not bound, patching ServerClaim with recreate annotation", "name", serverClaim.Name, "namespace", serverClaim.Namespace)
 			err = d.patchServerClaimWithRecreateAnnotation(ctx, serverClaim, true)
 			if err != nil {
 				return nil, status.Error(codes.Internal, fmt.Sprintf("failed to patch ServerClaim with recreate annotation: %v", err))
 			}
 			// workaround: codes.Unavailable will ensure a short retry in 5 seconds
-			return nil, status.Error(codes.Unavailable, fmt.Sprintf("server %q in namespace %q is still not claimed", req.Machine.Name, d.metalNamespace))
+			return nil, status.Error(codes.Unavailable, fmt.Sprintf("server %q in namespace %q is still not bound", req.Machine.Name, d.metalNamespace))
 		} else {
 			err = d.patchServerClaimWithRecreateAnnotation(ctx, serverClaim, false)
 			if err != nil {
@@ -257,8 +257,8 @@ func (d *metalDriver) updateServerClaimOwnershipToIPAddressClaim(ctx context.Con
 	return nil
 }
 
-// ServerIsClaimed checks if the server is already claimed
-func (d *metalDriver) ServerIsClaimed(ctx context.Context, serverClaim *metalv1alpha1.ServerClaim) (bool, error) {
+// ServerIsBound checks if the server is already bound
+func (d *metalDriver) ServerIsBound(ctx context.Context, serverClaim *metalv1alpha1.ServerClaim) (bool, error) {
 	if err := d.clientProvider.SyncClient(func(metalClient client.Client) error {
 		return metalClient.Get(ctx, client.ObjectKeyFromObject(serverClaim), serverClaim)
 	}); err != nil {

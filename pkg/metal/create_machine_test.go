@@ -94,7 +94,7 @@ var _ = Describe("CreateMachine", func() {
 		})
 	})
 
-	It("should create CAPI IPClaims if ipamConfig is specified", func(ctx SpecContext) {
+	It("should create CAPI IPAddressClaims if ipamConfig is specified", func(ctx SpecContext) {
 		machineIndex := 2
 		machineName := fmt.Sprintf("%s-%d", machineNamePrefix, machineIndex)
 		By("creating a server")
@@ -310,7 +310,7 @@ var _ = Describe("CreateMachine with Server name as hostname", func() {
 		})
 	})
 
-	It("should fail if server not claimed", func(ctx SpecContext) {
+	It("should fail if server not bound", func(ctx SpecContext) {
 		machineIndex := 4
 		machineName := fmt.Sprintf("%s-%d", machineNamePrefix, machineIndex)
 		By("creating a server")
@@ -332,7 +332,7 @@ var _ = Describe("CreateMachine with Server name as hostname", func() {
 			Secret:       providerSecret,
 		})
 		Expect(err).To(HaveOccurred())
-		Expect(err).To(MatchError(status.Error(codes.Unavailable, fmt.Sprintf(`server %q in namespace %q is still not claimed`, machineName, ns.Name))))
+		Expect(err).To(MatchError(status.Error(codes.Unavailable, fmt.Sprintf(`server %q in namespace %q is still not bound`, machineName, ns.Name))))
 
 		By("ensuring the cleanup of the machine")
 		DeferCleanup((*drv).DeleteMachine, &driver.DeleteMachineRequest{
@@ -347,7 +347,7 @@ var _ = Describe("CreateMachine using BMC names", func() {
 	ns, providerSecret, drv := SetupTest(cmd.NodeNamePolicyBMCName)
 	machineNamePrefix := "machine-create"
 
-	It("should fail if server not claimed", func(ctx SpecContext) {
+	It("should fail if server not bound", func(ctx SpecContext) {
 		machineIndex := 5
 		machineName := fmt.Sprintf("%s-%d", machineNamePrefix, machineIndex)
 		By("creating a BMC")
@@ -387,7 +387,7 @@ var _ = Describe("CreateMachine using BMC names", func() {
 		})
 
 		Expect(err).To(HaveOccurred())
-		Expect(err).To(MatchError(status.Error(codes.Unavailable, fmt.Sprintf(`server %q in namespace %q is still not claimed`, machineName, ns.Name))))
+		Expect(err).To(MatchError(status.Error(codes.Unavailable, fmt.Sprintf(`server %q in namespace %q is still not bound`, machineName, ns.Name))))
 
 		By("ensuring that a server claim has been created and has the recreate annotation")
 		serverClaim := &metalv1alpha1.ServerClaim{

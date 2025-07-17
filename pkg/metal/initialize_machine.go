@@ -47,7 +47,7 @@ func (d *metalDriver) InitializeMachine(ctx context.Context, req *driver.Initial
 	serverClaim, unavailable, err := d.getServerClaim(ctx, req)
 	if err != nil {
 		if unavailable {
-			return nil, status.Error(codes.Unavailable, fmt.Sprintf("failed to get ServerClaim %s/%s, not ready: %v", d.metalNamespace, req.Machine.Name, err))
+			return nil, status.Error(codes.Uninitialized, fmt.Sprintf("ServerClaim %s/%s still not bound: %v", d.metalNamespace, req.Machine.Name, err))
 		} else {
 			return nil, status.Error(codes.Internal, fmt.Sprintf("failed to get ServerClaim: %v", err))
 		}
@@ -57,7 +57,7 @@ func (d *metalDriver) InitializeMachine(ctx context.Context, req *driver.Initial
 	unavailable, err = d.getIPAddressClaimsMetadata(ctx, req, providerSpec, addressesMetaData)
 	if err != nil {
 		if unavailable {
-			return nil, status.Error(codes.Unavailable, fmt.Sprintf("IPAddressClaim(s) still pending: %v", err))
+			return nil, status.Error(codes.Uninitialized, fmt.Sprintf("IPAddressClaim still not bound: %v", err))
 		}
 		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to get IPAddressClaims: %v", err))
 	}
@@ -103,7 +103,7 @@ func (d *metalDriver) getIPAddressClaimsMetadata(ctx context.Context, req *drive
 
 		validationErr := validation.ValidateIPAddressClaim(ipClaim, d.metalNamespace, req.Machine.Name)
 		if validationErr.ToAggregate() != nil && len(validationErr.ToAggregate().Errors()) > 0 {
-			return true, fmt.Errorf("failed to validate IPAddressClaim, still pending: %v", validationErr.ToAggregate().Errors())
+			return true, fmt.Errorf("failed to validate IPAddressClaim %s/%s: %v", ipClaim.Namespace, ipClaim.Name, validationErr.ToAggregate().Errors())
 		}
 
 		ipAddr := &capiv1beta1.IPAddress{
