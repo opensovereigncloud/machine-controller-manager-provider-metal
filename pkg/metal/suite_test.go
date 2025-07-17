@@ -141,7 +141,10 @@ func SetupTest(nodeNamePolicy cmd.NodeNamePolicy) (*corev1.Namespace, *corev1.Se
 		}
 		Expect(k8sClient.Create(ctx, secret)).To(Succeed())
 
-		drv = NewDriver(&mcmclient.Provider{Client: userClient}, ns.Name, nodeNamePolicy)
+		clientProvider := &mcmclient.Provider{}
+		clientProvider.SetClient(userClient)
+
+		drv = NewDriver(clientProvider, ns.Name, nodeNamePolicy)
 	})
 
 	return ns, secret, &drv

@@ -51,9 +51,9 @@ func (d *metalDriver) GetVolumeIDs(_ context.Context, _ *driver.GetVolumeIDsRequ
 }
 
 // NewDriver returns a new Gardener metal driver object
-func NewDriver(cp *mcmclient.Provider, namespace string, nodeNamePolicy cmd.NodeNamePolicy) driver.Driver {
+func NewDriver(clientProvider *mcmclient.Provider, namespace string, nodeNamePolicy cmd.NodeNamePolicy) driver.Driver {
 	return &metalDriver{
-		clientProvider: cp,
+		clientProvider: clientProvider,
 		metalNamespace: namespace,
 		nodeNamePolicy: nodeNamePolicy,
 	}
