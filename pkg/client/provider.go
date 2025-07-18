@@ -28,7 +28,7 @@ import (
 type syncClientFunc func(client client.Client) error
 
 type Provider struct {
-	k8sClient      client.Client
+	client         client.Client
 	mu             sync.Mutex
 	s              *runtime.Scheme
 	kubeconfigPath string
@@ -64,18 +64,18 @@ func NewProviderAndNamespace(ctx context.Context, kubeconfigPath string) (*Provi
 func (p *Provider) SyncClient(fn syncClientFunc) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.k8sClient == nil {
+	if p.client == nil {
 		return fmt.Errorf("client is not initialized")
 	}
-	return fn(p.k8sClient)
+	return fn(p.client)
 }
 
 func (p *Provider) GetClientScheme() *runtime.Scheme {
-	return p.k8sClient.Scheme()
+	return p.client.Scheme()
 }
 
 func (p *Provider) SetClient(newClient client.Client) {
-	p.k8sClient = newClient
+	p.client = newClient
 }
 
 func (p *Provider) getClientConfig() (clientcmd.OverridingClientConfig, error) {
@@ -112,7 +112,7 @@ func (p *Provider) setMetalClient(clientConfig clientcmd.OverridingClientConfig)
 	if err != nil {
 		return fmt.Errorf("failed to create client: %w", err)
 	}
-	p.k8sClient = newClient
+	p.client = newClient
 	return nil
 }
 

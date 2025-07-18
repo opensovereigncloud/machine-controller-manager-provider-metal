@@ -85,7 +85,7 @@ var _ = Describe("Provider", func() {
 				Expect(err).ShouldNot(HaveOccurred())
 
 				cp.mu.Lock()
-				oldClient := cp.k8sClient
+				oldClient := cp.client
 				cp.mu.Unlock()
 
 				newKubeconfigStr := strings.Replace(kubeconfigStr, "123", "321", 1)
@@ -93,7 +93,7 @@ var _ = Describe("Provider", func() {
 
 				Eventually(func(g Gomega) {
 					cp.mu.Lock()
-					newClient := cp.k8sClient
+					newClient := cp.client
 					cp.mu.Unlock()
 					g.Expect(newClient).NotTo(Equal(oldClient))
 				}).Should(Succeed())
