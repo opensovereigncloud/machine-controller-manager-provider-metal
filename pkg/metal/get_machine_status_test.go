@@ -50,20 +50,6 @@ var _ = Describe("GetMachineStatus", func() {
 		Expect(ret).To(BeNil())
 		Expect(err).Should(MatchError(status.Error(codes.InvalidArgument, "received empty GetMachineStatusRequest")))
 
-		By("starting a non-blocking goroutine to patch ServerClaim")
-		go func() {
-			defer GinkgoRecover()
-			serverClaim := &metalv1alpha1.ServerClaim{
-				ObjectMeta: metav1.ObjectMeta{
-					Namespace: ns.Name,
-					Name:      machineName,
-				},
-			}
-			Eventually(Update(serverClaim, func() {
-				serverClaim.Spec.ServerRef = &corev1.LocalObjectReference{Name: server.Name}
-			})).Should(Succeed())
-		}()
-
 		By("creating machine")
 		Expect((*drv).CreateMachine(ctx, &driver.CreateMachineRequest{
 			Machine:      newMachine(ns, machineNamePrefix, machineIndex, nil),
@@ -73,6 +59,17 @@ var _ = Describe("GetMachineStatus", func() {
 			ProviderID: fmt.Sprintf("%s://%s/%s-%d", v1alpha1.ProviderName, ns.Name, machineNamePrefix, machineIndex),
 			NodeName:   machineName,
 		}))
+
+		By("patching ServerClaim with ServerRef")
+		serverClaim := &metalv1alpha1.ServerClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: ns.Name,
+				Name:      machineName,
+			},
+		}
+		Eventually(Update(serverClaim, func() {
+			serverClaim.Spec.ServerRef = &corev1.LocalObjectReference{Name: server.Name}
+		})).Should(Succeed())
 
 		By("ensuring the machine status")
 		_, err = (*drv).GetMachineStatus(ctx, &driver.GetMachineStatusRequest{

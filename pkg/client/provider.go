@@ -75,6 +75,8 @@ func (p *Provider) GetClientScheme() *runtime.Scheme {
 }
 
 func (p *Provider) SetClient(newClient client.Client) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	p.client = newClient
 }
 

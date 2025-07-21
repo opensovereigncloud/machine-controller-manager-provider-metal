@@ -65,7 +65,7 @@ var _ = Describe("CreateMachine", func() {
 			NodeName:   machineName,
 		}))
 
-		By("ensuring that a server claim has been created")
+		By("ensuring that a ServerClaim has been created")
 		serverClaim := &metalv1alpha1.ServerClaim{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      machineName,
@@ -118,13 +118,6 @@ var _ = Describe("CreateMachine", func() {
 			Expect(k8sClient.Create(ctx, ip)).To(Succeed())
 			DeferCleanup(k8sClient.Delete, ip)
 
-			go func() {
-				defer GinkgoRecover()
-				Eventually(UpdateStatus(ipClaim, func() {
-					ipClaim.Status.AddressRef.Name = ip.Name
-				})).Should(Succeed())
-			}()
-
 			ipClaims = append(ipClaims, ipClaim)
 		}
 
@@ -143,9 +136,9 @@ var _ = Describe("CreateMachine", func() {
 				Name:      machineName,
 			},
 		}
-		Eventually(Object(serverClaim)).Should(SatisfyAll(
+		Eventually(Object(serverClaim)).Should(
 			HaveField("Spec.Power", metalv1alpha1.PowerOff),
-		))
+		)
 
 		for _, ipClaim := range ipClaims {
 			Eventually(Object(ipClaim)).Should(SatisfyAll(
@@ -281,7 +274,7 @@ var _ = Describe("CreateMachine with Server name as hostname", func() {
 			}))
 		}).Should(Succeed())
 
-		By("ensuring that a server claim has been created")
+		By("ensuring that a ServerClaim has been created")
 		serverClaim := &metalv1alpha1.ServerClaim{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      machineName,
@@ -333,6 +326,42 @@ var _ = Describe("CreateMachine with Server name as hostname", func() {
 		})
 		Expect(err).To(HaveOccurred())
 		Expect(err).To(MatchError(status.Error(codes.Unavailable, fmt.Sprintf(`server %q in namespace %q is still not bound`, machineName, ns.Name))))
+
+		By("ensuring that a ServerClaim has been created and has the recreate annotation")
+		serverClaim := &metalv1alpha1.ServerClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      machineName,
+				Namespace: ns.Name,
+			},
+		}
+
+		Eventually(Object(serverClaim)).Should(HaveField("ObjectMeta.Annotations", HaveKeyWithValue(validation.AnnotationKeyMCMMachineRecreate, "true")))
+
+		By("starting a non-blocking goroutine to patch ServerClaim")
+		go func() {
+			defer GinkgoRecover()
+			serverClaim := &metalv1alpha1.ServerClaim{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: ns.Name,
+					Name:      machineName,
+				},
+			}
+			Eventually(Update(serverClaim, func() {
+				serverClaim.Spec.ServerRef = &corev1.LocalObjectReference{Name: server.Name}
+			})).Should(Succeed())
+		}()
+
+		By("ensuring that a server claim did not have recreate annotation after successful creation")
+		Eventually(func(g Gomega) {
+			_, err := (*drv).CreateMachine(ctx, &driver.CreateMachineRequest{
+				Machine:      newMachine(ns, machineNamePrefix, machineIndex, nil),
+				MachineClass: newMachineClass(v1alpha1.ProviderName, testing.SampleProviderSpec),
+				Secret:       providerSecret,
+			})
+			g.Expect(err).NotTo(HaveOccurred())
+		}).Should(Succeed())
+
+		Eventually(Object(serverClaim)).ShouldNot(HaveField("ObjectMeta.Annotations", HaveKey(validation.AnnotationKeyMCMMachineRecreate)))
 
 		By("ensuring the cleanup of the machine")
 		DeferCleanup((*drv).DeleteMachine, &driver.DeleteMachineRequest{
@@ -389,7 +418,7 @@ var _ = Describe("CreateMachine using BMC names", func() {
 		Expect(err).To(HaveOccurred())
 		Expect(err).To(MatchError(status.Error(codes.Unavailable, fmt.Sprintf(`server %q in namespace %q is still not bound`, machineName, ns.Name))))
 
-		By("ensuring that a server claim has been created and has the recreate annotation")
+		By("ensuring that a ServerClaim has been created and has the recreate annotation")
 		serverClaim := &metalv1alpha1.ServerClaim{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      machineName,
@@ -413,6 +442,7 @@ var _ = Describe("CreateMachine using BMC names", func() {
 			})).Should(Succeed())
 		}()
 
+		By("ensuring that a server claim did not have recreate annotation after successful creation")
 		Eventually(func(g Gomega) {
 			_, err := (*drv).CreateMachine(ctx, &driver.CreateMachineRequest{
 				Machine:      newMachine(ns, machineNamePrefix, machineIndex, nil),

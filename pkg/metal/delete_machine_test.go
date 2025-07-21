@@ -101,20 +101,6 @@ var _ = Describe("DeleteMachine", func() {
 			},
 		}
 
-		By("starting a non-blocking goroutine to patch ServerClaim")
-		go func() {
-			defer GinkgoRecover()
-			serverClaim := &metalv1alpha1.ServerClaim{
-				ObjectMeta: metav1.ObjectMeta{
-					Namespace: ns.Name,
-					Name:      machineName,
-				},
-			}
-			Eventually(Update(serverClaim, func() {
-				serverClaim.Spec.ServerRef = &corev1.LocalObjectReference{Name: server.Name}
-			})).Should(Succeed())
-		}()
-
 		By("creating an metal machine")
 		Expect((*drv).CreateMachine(ctx, &driver.CreateMachineRequest{
 			Machine:      newMachine(ns, machineNamePrefix, machineIndex, nil),

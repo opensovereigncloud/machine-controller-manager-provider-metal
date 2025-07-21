@@ -123,12 +123,6 @@ var _ = Describe("ValidateIPAddressClaim", func() {
 		}
 	})
 
-	It("should return error if AddressRef.Name is empty", func() {
-		ipClaim.Status.AddressRef.Name = ""
-		errs := ValidateIPAddressClaim(ipClaim, metalNamespace, machineName)
-		Expect(errs).To(ContainElement(field.Required(field.NewPath("status").Child("addressRef").Child("name"), "IP address reference is required")))
-	})
-
 	It("should return error if labels are nil", func() {
 		ipClaim.Labels = nil
 		errs := ValidateIPAddressClaim(ipClaim, metalNamespace, machineName)

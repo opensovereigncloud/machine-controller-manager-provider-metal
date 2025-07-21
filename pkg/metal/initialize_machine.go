@@ -44,17 +44,17 @@ func (d *metalDriver) InitializeMachine(ctx context.Context, req *driver.Initial
 		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to get provider spec: %v", err))
 	}
 
-	serverClaim, unavailable, err := d.getServerClaim(ctx, req)
+	serverClaim, err := d.getServerClaim(ctx, req)
 	if err != nil {
-		if unavailable {
-			return nil, status.Error(codes.Uninitialized, fmt.Sprintf("ServerClaim %s/%s still not bound: %v", d.metalNamespace, req.Machine.Name, err))
-		} else {
-			return nil, status.Error(codes.Internal, fmt.Sprintf("failed to get ServerClaim: %v", err))
-		}
+		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to get ServerClaim: %v", err))
+	}
+
+	if serverClaim.Spec.ServerRef == nil {
+		return nil, status.Error(codes.Uninitialized, fmt.Sprintf("ServerClaim %s/%s still not bound", d.metalNamespace, req.Machine.Name))
 	}
 
 	addressesMetaData := make(map[string]any)
-	unavailable, err = d.getIPAddressClaimsMetadata(ctx, req, providerSpec, addressesMetaData)
+	unavailable, err := d.getIPAddressClaimsMetadata(ctx, req, providerSpec, addressesMetaData)
 	if err != nil {
 		if unavailable {
 			return nil, status.Error(codes.Uninitialized, fmt.Sprintf("IPAddressClaim still not bound: %v", err))
@@ -103,7 +103,11 @@ func (d *metalDriver) getIPAddressClaimsMetadata(ctx context.Context, req *drive
 
 		validationErr := validation.ValidateIPAddressClaim(ipClaim, d.metalNamespace, req.Machine.Name)
 		if validationErr.ToAggregate() != nil && len(validationErr.ToAggregate().Errors()) > 0 {
-			return true, fmt.Errorf("failed to validate IPAddressClaim %s/%s: %v", ipClaim.Namespace, ipClaim.Name, validationErr.ToAggregate().Errors())
+			return false, fmt.Errorf("failed to validate IPAddressClaim %s/%s: %v", ipClaim.Namespace, ipClaim.Name, validationErr.ToAggregate().Errors())
+		}
+
+		if ipClaim.Status.AddressRef.Name == "" {
+			return true, fmt.Errorf("IPAddressClaim %s/%s is not bound to an IPAddress", ipClaim.Namespace, ipClaim.Name)
 		}
 
 		ipAddr := &capiv1beta1.IPAddress{
@@ -264,7 +268,7 @@ func (d *metalDriver) extractServerMetadataFromClaim(ctx context.Context, claim 
 	return serverMetadata, nil
 }
 
-func (d *metalDriver) getServerClaim(ctx context.Context, req *driver.InitializeMachineRequest) (*metalv1alpha1.ServerClaim, bool, error) {
+func (d *metalDriver) getServerClaim(ctx context.Context, req *driver.InitializeMachineRequest) (*metalv1alpha1.ServerClaim, error) {
 	klog.V(3).Info("getting ServerClaim for machine", "name", req.Machine.Name, "namespace", d.metalNamespace)
 
 	serverClaim := &metalv1alpha1.ServerClaim{
@@ -277,12 +281,8 @@ func (d *metalDriver) getServerClaim(ctx context.Context, req *driver.Initialize
 	if err := d.clientProvider.SyncClient(func(metalClient client.Client) error {
 		return metalClient.Get(ctx, client.ObjectKeyFromObject(serverClaim), serverClaim)
 	}); err != nil {
-		return nil, false, fmt.Errorf("failed to get ServerClaim %q: %w", client.ObjectKeyFromObject(serverClaim), err)
+		return nil, fmt.Errorf("failed to get ServerClaim %q: %w", client.ObjectKeyFromObject(serverClaim), err)
 	}
 
-	if serverClaim.Spec.ServerRef == nil {
-		return nil, true, fmt.Errorf("ServerClaim %q does not have a server reference", client.ObjectKeyFromObject(serverClaim))
-	}
-
-	return serverClaim, false, nil
+	return serverClaim, nil
 }

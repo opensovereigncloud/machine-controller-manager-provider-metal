@@ -68,10 +68,6 @@ func validateMachineClassSpec(spec *v1alpha1.ProviderSpec, fldPath *field.Path) 
 func ValidateIPAddressClaim(ipClaim *capiv1beta1.IPAddressClaim, metalNamespace, machineName string) field.ErrorList {
 	var allErrs field.ErrorList
 
-	if ipClaim.Status.AddressRef.Name == "" {
-		allErrs = append(allErrs, field.Required(field.NewPath("status").Child("addressRef").Child("name"), "IP address reference is required"))
-	}
-
 	if ipClaim.Labels == nil {
 		allErrs = append(allErrs, field.Required(field.NewPath("metadata").Child("labels"), "IP address claim labels are required"))
 	}

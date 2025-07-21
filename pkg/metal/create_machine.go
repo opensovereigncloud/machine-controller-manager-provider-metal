@@ -67,19 +67,20 @@ func (d *metalDriver) CreateMachine(ctx context.Context, req *driver.CreateMachi
 			return nil, status.Error(codes.Internal, fmt.Sprintf("failed to check if server is bound: %v", err))
 		}
 
-		if !serverBound {
-			klog.V(3).Info("server is still not bound, patching ServerClaim with recreate annotation", "name", serverClaim.Name, "namespace", serverClaim.Namespace)
+		if serverBound {
+			klog.V(3).Info("server is already boun, removing recreate annotation", "name", serverClaim.Name, "namespace", serverClaim.Namespace)
+			err = d.patchServerClaimWithRecreateAnnotation(ctx, serverClaim, false)
+			if err != nil {
+				return nil, status.Error(codes.Internal, fmt.Sprintf("failed to patch ServerClaim without recreate annotation: %v", err))
+			}
+		} else {
+			klog.V(3).Info("server is still not bound, adding recreate annotation", "name", serverClaim.Name, "namespace", serverClaim.Namespace)
 			err = d.patchServerClaimWithRecreateAnnotation(ctx, serverClaim, true)
 			if err != nil {
 				return nil, status.Error(codes.Internal, fmt.Sprintf("failed to patch ServerClaim with recreate annotation: %v", err))
 			}
 			// workaround: codes.Unavailable will ensure a short retry in 5 seconds
 			return nil, status.Error(codes.Unavailable, fmt.Sprintf("server %q in namespace %q is still not bound", req.Machine.Name, d.metalNamespace))
-		} else {
-			err = d.patchServerClaimWithRecreateAnnotation(ctx, serverClaim, false)
-			if err != nil {
-				return nil, status.Error(codes.Internal, fmt.Sprintf("failed to patch ServerClaim without recreate annotation: %v", err))
-			}
 		}
 	}
 
@@ -136,9 +137,15 @@ func (d *metalDriver) createIPAddressClaims(ctx context.Context, req *driver.Cre
 	return ipAddressClaims, nil
 }
 
-// generateIPAddressClaim generates an IPAddressClaim object based on the IPAMConfig and machine name
-func (d *metalDriver) generateIPAddressClaim(ipamConfig *apiv1alpha1.IPAMConfig, machineName string, ipAddrClaimName string) *capiv1beta1.IPAddressClaim {
-	return &capiv1beta1.IPAddressClaim{
+// createIPAddressClaim creates IPAddressClaim
+func (d *metalDriver) createIPAddressClaim(ctx context.Context, ipamConfig *apiv1alpha1.IPAMConfig, machineName string, ipAddrClaimName string) (*capiv1beta1.IPAddressClaim, error) {
+	if ipamConfig.IPAMRef == nil {
+		return nil, fmt.Errorf("IPAMRef of an IPAMConfig %q is not set", ipamConfig.MetadataKey)
+	}
+
+	klog.V(3).Info("creating IP address claim", "name", ipAddrClaimName)
+
+	ipClaim := &capiv1beta1.IPAddressClaim{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      ipAddrClaimName,
 			Namespace: d.metalNamespace,
@@ -155,17 +162,6 @@ func (d *metalDriver) generateIPAddressClaim(ipamConfig *apiv1alpha1.IPAMConfig,
 			},
 		},
 	}
-}
-
-// createIPAddressClaim creates IPAddressClaim
-func (d *metalDriver) createIPAddressClaim(ctx context.Context, ipamConfig *apiv1alpha1.IPAMConfig, machineName string, ipAddrClaimName string) (*capiv1beta1.IPAddressClaim, error) {
-	if ipamConfig.IPAMRef == nil {
-		return nil, fmt.Errorf("IPAMRef of an IPAMConfig %q is not set", ipamConfig.MetadataKey)
-	}
-
-	klog.V(3).Info("creating IP address claim", "name", ipAddrClaimName)
-
-	ipClaim := d.generateIPAddressClaim(ipamConfig, machineName, ipAddrClaimName)
 
 	if err := d.clientProvider.SyncClient(func(metalClient client.Client) error {
 		return metalClient.Create(ctx, ipClaim)
@@ -214,7 +210,7 @@ func (d *metalDriver) createServerClaim(ctx context.Context, claim *metalv1alpha
 
 // patchServerClaimWithRecreateAnnotation patches the ServerClaim with an annotation to trigger a machine recreation
 func (d *metalDriver) patchServerClaimWithRecreateAnnotation(ctx context.Context, serverClaim *metalv1alpha1.ServerClaim, addAnnotation bool) error {
-	klog.V(3).Info("patching ServerClaim with recreate annotation", "name", serverClaim.Name, "namespace", serverClaim.Namespace)
+	klog.V(3).Info("patching ServerClaim with recreate annotation", "name", serverClaim.Name, "namespace", serverClaim.Namespace, "addAnnotation", addAnnotation)
 
 	if err := d.clientProvider.SyncClient(func(metalClient client.Client) error {
 		baseServerClaim := serverClaim.DeepCopy()

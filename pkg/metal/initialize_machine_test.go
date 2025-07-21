@@ -48,20 +48,6 @@ var _ = Describe("InitializeMachine", func() {
 		Expect(k8sClient.Create(ctx, server)).To(Succeed())
 		DeferCleanup(k8sClient.Delete, server)
 
-		By("starting a non-blocking goroutine to patch ServerClaim")
-		go func() {
-			defer GinkgoRecover()
-			serverClaim := &metalv1alpha1.ServerClaim{
-				ObjectMeta: metav1.ObjectMeta{
-					Namespace: ns.Name,
-					Name:      machineName,
-				},
-			}
-			Eventually(Update(serverClaim, func() {
-				serverClaim.Spec.ServerRef = &corev1.LocalObjectReference{Name: server.Name}
-			})).Should(Succeed())
-		}()
-
 		By("creating machine")
 		Expect((*drv).CreateMachine(ctx, &driver.CreateMachineRequest{
 			Machine:      newMachine(ns, machineNamePrefix, machineIndex, nil),
@@ -72,7 +58,7 @@ var _ = Describe("InitializeMachine", func() {
 			NodeName:   machineName,
 		}))
 
-		By("ensuring that a server claim has been created")
+		By("ensuring that a ServerClaim has been created")
 		serverClaim := &metalv1alpha1.ServerClaim{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      machineName,
@@ -80,18 +66,23 @@ var _ = Describe("InitializeMachine", func() {
 			},
 		}
 
-		Eventually(Object(serverClaim)).Should(SatisfyAll(
+		Eventually(Object(serverClaim)).Should(
 			HaveField("Spec.Power", metalv1alpha1.PowerOff),
-		))
+		)
 
-		By("failing on initial initialization of the  machine, ServerClaim still not bound")
+		By("failing on initial initialization of the machine, ServerClaim still not bound")
 		_, err := (*drv).InitializeMachine(ctx, &driver.InitializeMachineRequest{
 			Machine:      newMachine(ns, machineNamePrefix, machineIndex, nil),
 			MachineClass: newMachineClass(v1alpha1.ProviderName, testing.SampleProviderSpec),
 			Secret:       providerSecret,
 		})
 		Expect(err).To(HaveOccurred())
-		Expect(err.Error()).To(ContainSubstring("does not have a server reference"))
+		Expect(err).To(MatchError(status.Error(codes.Uninitialized, fmt.Sprintf(`ServerClaim %s/%s still not bound`, ns.Name, machineName))))
+
+		By("patching ServerClaim with ServerRef")
+		Eventually(Update(serverClaim, func() {
+			serverClaim.Spec.ServerRef = &corev1.LocalObjectReference{Name: server.Name}
+		})).Should(Succeed())
 
 		By("retrying initialization of the machine")
 		Eventually(func(g Gomega) {
@@ -168,19 +159,6 @@ var _ = Describe("InitializeMachine", func() {
 			ipClaims = append(ipClaims, ipClaim)
 		}
 
-		go func() {
-			defer GinkgoRecover()
-			serverClaim := &metalv1alpha1.ServerClaim{
-				ObjectMeta: metav1.ObjectMeta{
-					Namespace: ns.Name,
-					Name:      machineName,
-				},
-			}
-			Eventually(Update(serverClaim, func() {
-				serverClaim.Spec.ServerRef = &corev1.LocalObjectReference{Name: server.Name}
-			})).Should(Succeed())
-		}()
-
 		By("creating machine")
 		_, err := (*drv).CreateMachine(ctx, &driver.CreateMachineRequest{
 			Machine:      newMachine(ns, machineNamePrefix, machineIndex, nil),
@@ -189,7 +167,7 @@ var _ = Describe("InitializeMachine", func() {
 		})
 		Expect(err).NotTo(HaveOccurred())
 
-		By("ensuring that a server claim has been created")
+		By("ensuring that a ServerClaim has been created")
 		serverClaim := &metalv1alpha1.ServerClaim{
 			ObjectMeta: metav1.ObjectMeta{
 				Namespace: ns.Name,
@@ -197,9 +175,14 @@ var _ = Describe("InitializeMachine", func() {
 			},
 		}
 
-		Eventually(Object(serverClaim)).Should(SatisfyAll(
+		Eventually(Object(serverClaim)).Should(
 			HaveField("Spec.Power", metalv1alpha1.PowerOff),
-		))
+		)
+
+		By("patching ServerClaim with ServerRef")
+		Eventually(Update(serverClaim, func() {
+			serverClaim.Spec.ServerRef = &corev1.LocalObjectReference{Name: server.Name}
+		})).Should(Succeed())
 
 		By("initialization of the machine")
 		Eventually(func(g Gomega) {
@@ -322,7 +305,7 @@ var _ = Describe("InitializeMachine", func() {
 			NodeName:   machineName,
 		}))
 
-		By("ensuring that a server claim has been created")
+		By("ensuring that a ServerClaim has been created")
 		serverClaim := &metalv1alpha1.ServerClaim{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      machineName,
@@ -330,9 +313,9 @@ var _ = Describe("InitializeMachine", func() {
 			},
 		}
 
-		Eventually(Object(serverClaim)).Should(SatisfyAll(
+		Eventually(Object(serverClaim)).Should(
 			HaveField("Spec.Power", metalv1alpha1.PowerOff),
-		))
+		)
 
 		By("failing on initial initialization of the  machine, ServerClaim still not bound")
 		_, err := (*drv).InitializeMachine(ctx, &driver.InitializeMachineRequest{
@@ -341,7 +324,7 @@ var _ = Describe("InitializeMachine", func() {
 			Secret:       providerSecret,
 		})
 		Expect(err).To(HaveOccurred())
-		Expect(err).To(MatchError(status.Error(codes.Uninitialized, fmt.Sprintf(`ServerClaim %s/%s still not bound: ServerClaim "%s/%s" does not have a server reference`, ns.Name, machineName, ns.Name, machineName))))
+		Expect(err).To(MatchError(status.Error(codes.Uninitialized, fmt.Sprintf(`ServerClaim %s/%s still not bound`, ns.Name, machineName))))
 
 		By("ensuring the cleanup of the machine")
 		DeferCleanup((*drv).DeleteMachine, &driver.DeleteMachineRequest{
@@ -366,20 +349,6 @@ var _ = Describe("InitializeMachine", func() {
 		Expect(k8sClient.Create(ctx, server)).To(Succeed())
 		DeferCleanup(k8sClient.Delete, server)
 
-		By("starting a non-blocking goroutine to patch ServerClaim")
-		go func() {
-			defer GinkgoRecover()
-			serverClaim := &metalv1alpha1.ServerClaim{
-				ObjectMeta: metav1.ObjectMeta{
-					Namespace: ns.Name,
-					Name:      machineName,
-				},
-			}
-			Eventually(Update(serverClaim, func() {
-				serverClaim.Spec.ServerRef = &corev1.LocalObjectReference{Name: server.Name}
-			})).Should(Succeed())
-		}()
-
 		providerSpec := maps.Clone(testing.SampleProviderSpec)
 		delete(providerSpec, "metaData")
 
@@ -394,7 +363,7 @@ var _ = Describe("InitializeMachine", func() {
 		})
 		Expect(err).NotTo(HaveOccurred())
 
-		By("ensuring that a server claim has been created")
+		By("ensuring that a ServerClaim has been created")
 		serverClaim := &metalv1alpha1.ServerClaim{
 			ObjectMeta: metav1.ObjectMeta{
 				Namespace: ns.Name,
@@ -402,9 +371,14 @@ var _ = Describe("InitializeMachine", func() {
 			},
 		}
 
-		Eventually(Object(serverClaim)).Should(SatisfyAll(
+		Eventually(Object(serverClaim)).Should(
 			HaveField("Spec.Power", metalv1alpha1.PowerOff),
-		))
+		)
+
+		By("patching ServerClaim with ServerRef")
+		Eventually(Update(serverClaim, func() {
+			serverClaim.Spec.ServerRef = &corev1.LocalObjectReference{Name: server.Name}
+		})).Should(Succeed())
 
 		By("initialization of the machine")
 		Eventually(func(g Gomega) {
@@ -414,7 +388,7 @@ var _ = Describe("InitializeMachine", func() {
 				Secret:       providerSecret,
 			})
 			g.Expect(err).To(HaveOccurred())
-			g.Expect(err).To(MatchError(status.Error(codes.Uninitialized, fmt.Sprintf("IPAddressClaim still not bound: failed to validate IPAddressClaim %s/%s-%s: [status.addressRef.name: Required value: IP address reference is required]", ns.Name, machineName, poolName))))
+			g.Expect(err).To(MatchError(status.Error(codes.Uninitialized, fmt.Sprintf("IPAddressClaim still not bound: IPAddressClaim %s/%s-%s is not bound to an IPAddress", ns.Name, machineName, poolName))))
 		}).Should(Succeed())
 
 		DeferCleanup(k8sClient.Delete, ipClaim)
@@ -475,7 +449,7 @@ var _ = Describe("InitializeMachine with Server name as hostname", func() {
 			}))
 		}).Should(Succeed())
 
-		By("ensuring that a server claim has been created")
+		By("ensuring that a ServerClaim has been created")
 		serverClaim := &metalv1alpha1.ServerClaim{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      machineName,
