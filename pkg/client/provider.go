@@ -135,16 +135,16 @@ func (p *Provider) reloadMetalClientOnConfigChange(ctx context.Context) error {
 	go func() {
 		defer func() {
 			watcher.Close()
-			klog.V(3).Infof("watcher loop ended for %s", path.Dir(p.kubeconfigPath))
+			klog.V(3).Infof("Watcher loop ended for %s", path.Dir(p.kubeconfigPath))
 		}()
-		klog.V(3).Infof("watcher loop started for %s", path.Dir(p.kubeconfigPath))
+		klog.V(3).Infof("Watcher loop started for %s", path.Dir(p.kubeconfigPath))
 
 		for {
 			select {
 			case err := <-watcher.Errors:
-				klog.Fatalf("watcher returned an error: %v", err)
+				klog.Fatalf("Watcher returned an error: %v", err)
 			case event := <-watcher.Events:
-				klog.V(3).Infof("event: %s", event.String())
+				klog.V(3).Infof("Event: %s", event.String())
 				newTargetKubeconfigPath, _ := filepath.EvalSymlinks(p.kubeconfigPath)
 				if newTargetKubeconfigPath == targetKubeconfigPath {
 					continue
@@ -153,14 +153,14 @@ func (p *Provider) reloadMetalClientOnConfigChange(ctx context.Context) error {
 
 				clientConfig, err := p.getClientConfig()
 				if err != nil {
-					klog.Warningf("couldn't get client config when config changed: %v", err)
+					klog.Warningf("Couldn't get client config when config changed: %v", err)
 					continue
 				}
 				if err := p.setMetalClient(clientConfig); err != nil {
-					klog.Warningf("couldn't update metal client when config changed: %v", err)
+					klog.Warningf("Couldn't update metal client when config changed: %v", err)
 					continue
 				}
-				klog.V(3).Infof("change of kubeconfig was handled successfully")
+				klog.V(3).Infof("Change of kubeconfig was handled successfully")
 			case <-ctx.Done():
 				return
 			}

@@ -26,8 +26,8 @@ func (d *metalDriver) ListMachines(ctx context.Context, req *driver.ListMachines
 		return nil, status.Error(codes.InvalidArgument, fmt.Sprintf("requested provider %q is not supported by the driver %q", req.MachineClass.Provider, apiv1alpha1.ProviderName))
 	}
 
-	klog.V(3).Infof("machine list request has been received for %q", req.MachineClass.Name)
-	defer klog.V(3).Infof("machine list request has been processed for %q", req.MachineClass.Name)
+	klog.V(3).Infof("Machine list request has been received for %q", req.MachineClass.Name)
+	defer klog.V(3).Infof("Machine list request has been processed for %q", req.MachineClass.Name)
 
 	providerSpec, err := GetProviderSpec(req.MachineClass, req.Secret)
 	if err != nil {

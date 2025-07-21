@@ -28,8 +28,8 @@ func (d *metalDriver) GetMachineStatus(ctx context.Context, req *driver.GetMachi
 		return nil, status.Error(codes.InvalidArgument, fmt.Sprintf("requested provider %q is not supported by the driver %q", req.MachineClass.Provider, apiv1alpha1.ProviderName))
 	}
 
-	klog.V(3).Infof("machine status request has been received for %q", req.Machine.Name)
-	defer klog.V(3).Infof("machine status request has been processed for %q", req.Machine.Name)
+	klog.V(3).Infof("Machine status request has been received for %q", req.Machine.Name)
+	defer klog.V(3).Infof("Machine status request has been processed for %q", req.Machine.Name)
 
 	serverClaim := &metalv1alpha1.ServerClaim{}
 
@@ -43,13 +43,13 @@ func (d *metalDriver) GetMachineStatus(ctx context.Context, req *driver.GetMachi
 	}
 
 	if len(serverClaim.Annotations) > 0 && serverClaim.Annotations[validation.AnnotationKeyMCMMachineRecreate] == "true" {
-		klog.V(3).Infof("machine creation flow will be retriggered, Server still not bound %q", req.Machine.Name)
+		klog.V(3).Infof("Machine creation flow will be retriggered, Server still not bound %q", req.Machine.Name)
 		// MCM provider retry with codes.NotFound which triggers machine create flow
 		return nil, status.Error(codes.NotFound, fmt.Sprintf("server claim %q is marked for recreation", req.Machine.Name))
 	}
 
 	if serverClaim.Spec.Power != metalv1alpha1.PowerOn {
-		klog.V(3).Infof("machine initialization flow will be retriggered, Server still not powered on %q", req.Machine.Name)
+		klog.V(3).Infof("Machine initialization flow will be retriggered, Server still not powered on %q", req.Machine.Name)
 		// MCM provider retry with codes.Uninitialized which triggers machine initialization flow
 		return nil, status.Error(codes.Uninitialized, fmt.Sprintf("server claim %q is still not powered on, will reinitialize", req.Machine.Name))
 	}

@@ -31,8 +31,8 @@ func (d *metalDriver) DeleteMachine(ctx context.Context, req *driver.DeleteMachi
 		return nil, status.Error(codes.InvalidArgument, fmt.Sprintf("requested provider %q is not supported by the driver %q", req.MachineClass.Provider, apiv1alpha1.ProviderName))
 	}
 
-	klog.V(3).Infof("machine deletion request has been received for %q", req.Machine.Name)
-	defer klog.V(3).Infof("machine deletion request has been processed for %q", req.Machine.Name)
+	klog.V(3).Infof("Machine deletion request has been received for %q", req.Machine.Name)
+	defer klog.V(3).Infof("Machine deletion request has been processed for %q", req.Machine.Name)
 
 	ignitionSecret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{

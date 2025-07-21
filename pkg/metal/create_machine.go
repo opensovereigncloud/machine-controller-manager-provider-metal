@@ -37,8 +37,8 @@ func (d *metalDriver) CreateMachine(ctx context.Context, req *driver.CreateMachi
 		return nil, status.Error(codes.InvalidArgument, fmt.Sprintf("requested provider %q is not supported by the driver %q", req.MachineClass.Provider, apiv1alpha1.ProviderName))
 	}
 
-	klog.V(3).Info("machine creation request has been received", "name", req.Machine.Name)
-	defer klog.V(3).Info("machine creation request has been processed", "name", req.Machine.Name)
+	klog.V(3).Info("Machine creation request has been received", "name", req.Machine.Name)
+	defer klog.V(3).Info("Machine creation request has been processed", "name", req.Machine.Name)
 
 	providerSpec, err := GetProviderSpec(req.MachineClass, req.Secret)
 	if err != nil {
@@ -67,13 +67,13 @@ func (d *metalDriver) CreateMachine(ctx context.Context, req *driver.CreateMachi
 		}
 
 		if serverBound {
-			klog.V(3).Info("server is already boun, removing recreate annotation", "name", serverClaim.Name, "namespace", serverClaim.Namespace)
+			klog.V(3).Info("Server is already boun, removing recreate annotation", "name", serverClaim.Name, "namespace", serverClaim.Namespace)
 			err = d.patchServerClaimWithRecreateAnnotation(ctx, serverClaim, false)
 			if err != nil {
 				return nil, status.Error(codes.Internal, fmt.Sprintf("failed to patch ServerClaim without recreate annotation: %v", err))
 			}
 		} else {
-			klog.V(3).Info("server is still not bound, adding recreate annotation", "name", serverClaim.Name, "namespace", serverClaim.Namespace)
+			klog.V(3).Info("Server is still not bound, adding recreate annotation", "name", serverClaim.Name, "namespace", serverClaim.Namespace)
 			err = d.patchServerClaimWithRecreateAnnotation(ctx, serverClaim, true)
 			if err != nil {
 				return nil, status.Error(codes.Internal, fmt.Sprintf("failed to patch ServerClaim with recreate annotation: %v", err))
@@ -142,7 +142,7 @@ func (d *metalDriver) createIPAddressClaim(ctx context.Context, ipamConfig *apiv
 		return nil, fmt.Errorf("IPAMRef of an IPAMConfig %q is not set", ipamConfig.MetadataKey)
 	}
 
-	klog.V(3).Info("creating IP address claim", "name", ipAddrClaimName)
+	klog.V(3).Info("Creating IP address claim", "name", ipAddrClaimName)
 
 	ipClaim := &capiv1beta1.IPAddressClaim{
 		ObjectMeta: metav1.ObjectMeta{
@@ -173,7 +173,7 @@ func (d *metalDriver) createIPAddressClaim(ctx context.Context, ipamConfig *apiv
 
 // createServerClaim creates and applies a ServerClaim object with proper ignition data
 func (d *metalDriver) createServerClaim(ctx context.Context, req *driver.CreateMachineRequest, providerSpec *apiv1alpha1.ProviderSpec) (*metalv1alpha1.ServerClaim, error) {
-	klog.V(3).Info("creating ServerClaim", "name", req.Machine.Name, "namespace", d.metalNamespace)
+	klog.V(3).Info("Creating ServerClaim", "name", req.Machine.Name, "namespace", d.metalNamespace)
 
 	serverClaim := &metalv1alpha1.ServerClaim{
 		TypeMeta: metav1.TypeMeta{
@@ -206,7 +206,7 @@ func (d *metalDriver) createServerClaim(ctx context.Context, req *driver.CreateM
 
 // patchServerClaimWithRecreateAnnotation patches the ServerClaim with an annotation to trigger a machine recreation
 func (d *metalDriver) patchServerClaimWithRecreateAnnotation(ctx context.Context, serverClaim *metalv1alpha1.ServerClaim, addAnnotation bool) error {
-	klog.V(3).Info("patching ServerClaim with recreate annotation", "name", serverClaim.Name, "namespace", serverClaim.Namespace, "addAnnotation", addAnnotation)
+	klog.V(3).Info("Patching ServerClaim with recreate annotation", "name", serverClaim.Name, "namespace", serverClaim.Namespace, "addAnnotation", addAnnotation)
 
 	if err := d.clientProvider.SyncClient(func(metalClient client.Client) error {
 		baseServerClaim := serverClaim.DeepCopy()
@@ -228,7 +228,7 @@ func (d *metalDriver) patchServerClaimWithRecreateAnnotation(ctx context.Context
 
 // updateServerClaimOwnershipToIPAddressClaim sets the owner reference of the IPAddressClaims to the ServerClaim
 func (d *metalDriver) updateServerClaimOwnershipToIPAddressClaim(ctx context.Context, serverClaim *metalv1alpha1.ServerClaim, ipAddressClaims []*capiv1beta1.IPAddressClaim) error {
-	klog.V(3).Info("setting owner reference for IPAddressClaims to ServerClaim", "name", client.ObjectKeyFromObject(serverClaim))
+	klog.V(3).Info("Setting owner reference for IPAddressClaims to ServerClaim", "name", client.ObjectKeyFromObject(serverClaim))
 
 	for _, ipAddressClaim := range ipAddressClaims {
 		ipAddressBase := ipAddressClaim.DeepCopy()
@@ -242,7 +242,7 @@ func (d *metalDriver) updateServerClaimOwnershipToIPAddressClaim(ctx context.Con
 			return fmt.Errorf("failed to patch IPAddressClaim: %w", err)
 		}
 
-		klog.V(3).Info("owner reference for IPAddressClaim to ServerClaim was set",
+		klog.V(3).Info("Owner reference for IPAddressClaim to ServerClaim was set",
 			"IPAddressClaim", client.ObjectKeyFromObject(ipAddressClaim).String(),
 			"ServerClaim", client.ObjectKeyFromObject(serverClaim).String())
 	}
