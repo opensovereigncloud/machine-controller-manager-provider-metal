@@ -50,8 +50,7 @@ func (d *metalDriver) CreateMachine(ctx context.Context, req *driver.CreateMachi
 		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to create IPAddressClaims: %v", err))
 	}
 
-	serverClaim := d.generateServerClaim(req, providerSpec)
-	err = d.createServerClaim(ctx, serverClaim)
+	serverClaim, err := d.createServerClaim(ctx, req, providerSpec)
 	if err != nil {
 		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to create ServerClaim: %v", err))
 	}
@@ -172,9 +171,11 @@ func (d *metalDriver) createIPAddressClaim(ctx context.Context, ipamConfig *apiv
 	return ipClaim, nil
 }
 
-// generateServerClaim creates a ServerClaim object based on the request and provider spec
-func (d *metalDriver) generateServerClaim(req *driver.CreateMachineRequest, spec *apiv1alpha1.ProviderSpec) *metalv1alpha1.ServerClaim {
-	return &metalv1alpha1.ServerClaim{
+// createServerClaim creates and applies a ServerClaim object with proper ignition data
+func (d *metalDriver) createServerClaim(ctx context.Context, req *driver.CreateMachineRequest, providerSpec *apiv1alpha1.ProviderSpec) (*metalv1alpha1.ServerClaim, error) {
+	klog.V(3).Info("creating ServerClaim", "name", req.Machine.Name, "namespace", d.metalNamespace)
+
+	serverClaim := &metalv1alpha1.ServerClaim{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: metalv1alpha1.GroupVersion.String(),
 			Kind:       "ServerClaim",
@@ -182,30 +183,25 @@ func (d *metalDriver) generateServerClaim(req *driver.CreateMachineRequest, spec
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      req.Machine.Name,
 			Namespace: d.metalNamespace,
-			Labels:    spec.Labels,
+			Labels:    providerSpec.Labels,
 		},
 		Spec: metalv1alpha1.ServerClaimSpec{
 			Power: metalv1alpha1.PowerOff, // we will power on the server later
 			ServerSelector: &metav1.LabelSelector{
-				MatchLabels:      spec.ServerLabels,
+				MatchLabels:      providerSpec.ServerLabels,
 				MatchExpressions: nil,
 			},
-			Image: spec.Image,
+			Image: providerSpec.Image,
 		},
 	}
-}
-
-// createServerClaim creates and applies a ServerClaim object with proper ignition data
-func (d *metalDriver) createServerClaim(ctx context.Context, claim *metalv1alpha1.ServerClaim) error {
-	klog.V(3).Info("creating ServerClaim", "name", claim.Name, "namespace", claim.Namespace)
 
 	if err := d.clientProvider.SyncClient(func(metalClient client.Client) error {
-		return metalClient.Patch(ctx, claim, client.Apply, fieldOwner, client.ForceOwnership)
+		return metalClient.Patch(ctx, serverClaim, client.Apply, fieldOwner, client.ForceOwnership)
 	}); err != nil {
-		return status.Error(codes.Internal, fmt.Sprintf("failed to create ServerClaim: %s", err.Error()))
+		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to create ServerClaim: %s", err.Error()))
 	}
 
-	return nil
+	return serverClaim, nil
 }
 
 // patchServerClaimWithRecreateAnnotation patches the ServerClaim with an annotation to trigger a machine recreation
