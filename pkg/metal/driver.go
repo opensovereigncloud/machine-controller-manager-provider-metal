@@ -116,7 +116,7 @@ func getIPAddressClaimName(machineName, metadataKey string) string {
 
 func GetProviderSpec(machineClass *machinev1alpha1.MachineClass, secret *corev1.Secret) (*apiv1alpha1.ProviderSpec, error) {
 	if machineClass == nil {
-		return nil, status.Error(codes.Internal, "MachineClass is not set in request")
+		return nil, errors.New("MachineClass is not set in request")
 	}
 
 	var providerSpec *apiv1alpha1.ProviderSpec

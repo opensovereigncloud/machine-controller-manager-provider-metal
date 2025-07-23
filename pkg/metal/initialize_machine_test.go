@@ -22,7 +22,6 @@ import (
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	capiv1beta1 "sigs.k8s.io/cluster-api/exp/ipam/api/v1beta1"
 	. "sigs.k8s.io/controller-runtime/pkg/envtest/komega"
 )
 
@@ -77,7 +76,7 @@ var _ = Describe("InitializeMachine", func() {
 			Secret:       providerSecret,
 		})
 		Expect(err).To(HaveOccurred())
-		Expect(err).To(MatchError(status.Error(codes.Uninitialized, fmt.Sprintf(`ServerClaim %s/%s still not bound`, ns.Name, machineName))))
+		Expect(err).To(MatchError(status.Error(codes.Unavailable, fmt.Sprintf(`ServerClaim %s/%s still not bound`, ns.Name, machineName))))
 
 		By("patching ServerClaim with ServerRef")
 		Eventually(Update(serverClaim, func() {
@@ -96,10 +95,6 @@ var _ = Describe("InitializeMachine", func() {
 			}))
 		}).Should(Succeed())
 
-		Eventually(Object(serverClaim)).Should(SatisfyAll(
-			HaveField("Spec.Power", metalv1alpha1.PowerOn),
-		))
-
 		By("ensuring that the ignition secret has been created")
 		ignition := &corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{
@@ -115,6 +110,12 @@ var _ = Describe("InitializeMachine", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Eventually(Object(ignition)).Should(SatisfyAll(
 			HaveField("Data", HaveKeyWithValue("ignition", MatchJSON(ignitionData))),
+		))
+
+		By("ensuring that the ignition secret is referenced in ServerClaim and power is set to PowerOn")
+		Eventually(Object(serverClaim)).Should(SatisfyAll(
+			HaveField("Spec.Power", metalv1alpha1.PowerOn),
+			HaveField("Spec.IgnitionSecretRef.Name", machineName),
 		))
 
 		By("ensuring the cleanup of the machine")
@@ -143,20 +144,18 @@ var _ = Describe("InitializeMachine", func() {
 		providerSpec := maps.Clone(testing.SampleProviderSpec)
 		delete(providerSpec, "metaData")
 
-		ipClaims := []*capiv1beta1.IPAddressClaim{}
 		for _, pool := range []string{"pool-c", "pool-d"} {
 			ip, ipClaim := newIPRef(machineName, ns.Name, pool, providerSpec, "10.11.13.13", "10.11.13.1")
 			Expect(k8sClient.Create(ctx, ip)).To(Succeed())
 			DeferCleanup(k8sClient.Delete, ip)
 
+			By("starting a non-blocking goroutine to patch IPAddressClaim")
 			go func() {
 				defer GinkgoRecover()
 				Eventually(UpdateStatus(ipClaim, func() {
 					ipClaim.Status.AddressRef.Name = ip.Name
 				})).Should(Succeed())
 			}()
-
-			ipClaims = append(ipClaims, ipClaim)
 		}
 
 		By("creating machine")
@@ -227,9 +226,103 @@ var _ = Describe("InitializeMachine", func() {
 			)),
 		))
 
-		for _, ipClaim := range ipClaims {
-			DeferCleanup(k8sClient.Delete, ipClaim)
+		By("ensuring that the ignition secret is referenced in ServerClaim and power is set to PowerOn")
+		Eventually(Object(serverClaim)).Should(SatisfyAll(
+			HaveField("Spec.Power", metalv1alpha1.PowerOn),
+			HaveField("Spec.IgnitionSecretRef.Name", machineName),
+		))
+
+		By("ensuring the cleanup of the machine")
+		DeferCleanup((*drv).DeleteMachine, &driver.DeleteMachineRequest{
+			Machine:      newMachine(ns, machineNamePrefix, machineIndex, nil),
+			MachineClass: newMachineClass(v1alpha1.ProviderName, testing.SampleProviderSpec),
+			Secret:       providerSecret,
+		})
+	})
+
+	It("should set IPAddressClaim owner reference if missing", func(ctx SpecContext) {
+		machineIndex := 3
+		machineName := fmt.Sprintf("%s-%d", machineNamePrefix, machineIndex)
+		By("creating a server")
+		server := &metalv1alpha1.Server{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "test-server",
+			},
+			Spec: metalv1alpha1.ServerSpec{
+				SystemUUID: "12345",
+			},
 		}
+		Expect(k8sClient.Create(ctx, server)).To(Succeed())
+		DeferCleanup(k8sClient.Delete, server)
+
+		providerSpec := maps.Clone(testing.SampleProviderSpec)
+		delete(providerSpec, "metaData")
+
+		ip, ipClaim := newIPRef(machineName, ns.Name, "pool-g", providerSpec, "10.11.13.13", "10.11.13.1")
+		Expect(k8sClient.Create(ctx, ip)).To(Succeed())
+		DeferCleanup(k8sClient.Delete, ip)
+
+		By("starting a non-blocking goroutine to patch IPAddressClaim")
+		go func() {
+			defer GinkgoRecover()
+			Eventually(UpdateStatus(ipClaim, func() {
+				ipClaim.Status.AddressRef.Name = ip.Name
+			})).Should(Succeed())
+		}()
+
+		By("creating machine")
+		_, err := (*drv).CreateMachine(ctx, &driver.CreateMachineRequest{
+			Machine:      newMachine(ns, machineNamePrefix, machineIndex, nil),
+			MachineClass: newMachineClass(v1alpha1.ProviderName, providerSpec),
+			Secret:       providerSecret,
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		By("ensuring that a ServerClaim has been created")
+		serverClaim := &metalv1alpha1.ServerClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: ns.Name,
+				Name:      machineName,
+			},
+		}
+
+		Eventually(Object(serverClaim)).Should(
+			HaveField("Spec.Power", metalv1alpha1.PowerOff),
+		)
+
+		By("patching ServerClaim with ServerRef")
+		Eventually(Update(serverClaim, func() {
+			serverClaim.Spec.ServerRef = &corev1.LocalObjectReference{Name: server.Name}
+		})).Should(Succeed())
+
+		By("by clearing IPAddressClaim owner references")
+		Eventually(Update(ipClaim, func() {
+			ipClaim.OwnerReferences = []metav1.OwnerReference{}
+		})).Should(Succeed())
+
+		By("initialization of the machine")
+		Eventually(func(g Gomega) {
+			g.Expect((*drv).InitializeMachine(ctx, &driver.InitializeMachineRequest{
+				Machine:      newMachine(ns, machineNamePrefix, machineIndex, nil),
+				MachineClass: newMachineClass(v1alpha1.ProviderName, providerSpec),
+				Secret:       providerSecret,
+			})).Should(Equal(&driver.InitializeMachineResponse{
+				ProviderID: fmt.Sprintf("%s://%s/%s-%d", v1alpha1.ProviderName, ns.Name, machineNamePrefix, machineIndex),
+				NodeName:   machineName,
+			}))
+		}).Should(Succeed())
+
+		By("ensuring that the IPAddressClaim has been patched with ServerClaim owner reference")
+		Eventually(Object(ipClaim)).Should(
+			HaveField("OwnerReferences", ContainElement(
+				metav1.OwnerReference{
+					APIVersion: metalv1alpha1.GroupVersion.String(),
+					Kind:       "ServerClaim",
+					Name:       serverClaim.Name,
+					UID:        serverClaim.UID,
+				},
+			)),
+		)
 
 		By("ensuring the cleanup of the machine")
 		DeferCleanup((*drv).DeleteMachine, &driver.DeleteMachineRequest{
@@ -278,7 +371,7 @@ var _ = Describe("InitializeMachine", func() {
 	})
 
 	It("should fail initialization when ServerClaim still not bound", func(ctx SpecContext) {
-		machineIndex := 3
+		machineIndex := 4
 		machineName := fmt.Sprintf("%s-%d", machineNamePrefix, machineIndex)
 		By("creating a server")
 		server := &metalv1alpha1.Server{
@@ -324,7 +417,7 @@ var _ = Describe("InitializeMachine", func() {
 			Secret:       providerSecret,
 		})
 		Expect(err).To(HaveOccurred())
-		Expect(err).To(MatchError(status.Error(codes.Uninitialized, fmt.Sprintf(`ServerClaim %s/%s still not bound`, ns.Name, machineName))))
+		Expect(err).To(MatchError(status.Error(codes.Unavailable, fmt.Sprintf(`ServerClaim %s/%s still not bound`, ns.Name, machineName))))
 
 		By("ensuring the cleanup of the machine")
 		DeferCleanup((*drv).DeleteMachine, &driver.DeleteMachineRequest{
@@ -335,7 +428,7 @@ var _ = Describe("InitializeMachine", func() {
 	})
 
 	It("should fail initialization when IPAddressClaim still not bound", func(ctx SpecContext) {
-		machineIndex := 2
+		machineIndex := 5
 		machineName := fmt.Sprintf("%s-%d", machineNamePrefix, machineIndex)
 		By("creating a server")
 		server := &metalv1alpha1.Server{
@@ -388,7 +481,7 @@ var _ = Describe("InitializeMachine", func() {
 				Secret:       providerSecret,
 			})
 			g.Expect(err).To(HaveOccurred())
-			g.Expect(err).To(MatchError(status.Error(codes.Uninitialized, fmt.Sprintf("IPAddressClaim still not bound: IPAddressClaim %s/%s-%s is not bound to an IPAddress", ns.Name, machineName, poolName))))
+			g.Expect(err).To(MatchError(status.Error(codes.Internal, fmt.Sprintf("failed to collect IPAddress metadata: IPAddressClaim %s/%s-%s is not bound to an IPAddress", ns.Name, machineName, poolName))))
 		}).Should(Succeed())
 
 		DeferCleanup(k8sClient.Delete, ipClaim)
@@ -407,7 +500,7 @@ var _ = Describe("InitializeMachine with Server name as hostname", func() {
 	machineNamePrefix := "machine-init"
 
 	It("should create and initialize a machine", func(ctx SpecContext) {
-		machineIndex := 4
+		machineIndex := 6
 		machineName := fmt.Sprintf("%s-%d", machineNamePrefix, machineIndex)
 		By("creating a server")
 		server := &metalv1alpha1.Server{

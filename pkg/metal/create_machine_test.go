@@ -223,7 +223,7 @@ var _ = Describe("CreateMachine", func() {
 			MachineClass: newMachineClass(v1alpha1.ProviderName, providerSpec),
 			Secret:       providerSecret,
 		})
-		Expect(err).Should(MatchError(status.Error(codes.Internal, `failed to create IPAddressClaims: IPAMRef of an IPAMConfig "foo" is not set`)))
+		Expect(err).Should(MatchError(status.Error(codes.Internal, `failed to create IPAddressClaims: machine codes error: code = [Internal] message = [IPAMRef of an IPAMConfig "foo" is not set]`)))
 	})
 })
 

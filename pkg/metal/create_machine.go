@@ -18,7 +18,6 @@ import (
 	"github.com/gardener/machine-controller-manager/pkg/util/provider/machinecodes/status"
 
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
@@ -45,18 +44,14 @@ func (d *metalDriver) CreateMachine(ctx context.Context, req *driver.CreateMachi
 		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to get provider spec: %v", err))
 	}
 
-	addressClaims, err := d.createIPAddressClaims(ctx, req, providerSpec)
-	if err != nil {
-		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to create IPAddressClaims: %v", err))
-	}
-
 	serverClaim, err := d.createServerClaim(ctx, req, providerSpec)
 	if err != nil {
 		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to create ServerClaim: %v", err))
 	}
 
-	if err := d.updateServerClaimOwnershipToIPAddressClaim(ctx, serverClaim, addressClaims); err != nil {
-		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to update ownership of IPAddressClaims to ServerClaim: %v", err))
+	err = d.createIPAddressClaims(ctx, req, serverClaim, providerSpec)
+	if err != nil {
+		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to create IPAddressClaims: %v", err))
 	}
 
 	// we need the server to be bound if not the ServerClaimName policy in order to get the node name
@@ -78,7 +73,7 @@ func (d *metalDriver) CreateMachine(ctx context.Context, req *driver.CreateMachi
 			if err != nil {
 				return nil, status.Error(codes.Internal, fmt.Sprintf("failed to patch ServerClaim with recreate annotation: %v", err))
 			}
-			// workaround: codes.Unavailable will ensure a short retry in 5 seconds
+			// MCM provider retry with codes.Unavailable will ensure a short retry in 5 seconds
 			return nil, status.Error(codes.Unavailable, fmt.Sprintf("server %q in namespace %q is still not bound", req.Machine.Name, d.metalNamespace))
 		}
 	}
@@ -99,76 +94,48 @@ func isEmptyCreateRequest(req *driver.CreateMachineRequest) bool {
 	return req == nil || req.MachineClass == nil || req.Machine == nil || req.Secret == nil
 }
 
-// createIPAddressClaims creates IPAddressClaims for the ipam config if missing
-func (d *metalDriver) createIPAddressClaims(ctx context.Context, req *driver.CreateMachineRequest, providerSpec *apiv1alpha1.ProviderSpec) ([]*capiv1beta1.IPAddressClaim, error) {
-	ipAddressClaims := []*capiv1beta1.IPAddressClaim{}
+// createIPAddressClaims creates IPAddressClaims for the ipam config
+func (d *metalDriver) createIPAddressClaims(ctx context.Context, req *driver.CreateMachineRequest, serverClaim *metalv1alpha1.ServerClaim, providerSpec *apiv1alpha1.ProviderSpec) error {
+	klog.V(3).Info("Creating IPAddressClaims", "name", req.Machine.Name, "namespace", d.metalNamespace)
 
 	for _, ipamConfig := range providerSpec.IPAMConfig {
-		ipAddrClaimName := getIPAddressClaimName(req.Machine.Name, ipamConfig.MetadataKey)
+		if ipamConfig.IPAMRef == nil {
+			return status.Error(codes.Internal, fmt.Sprintf("IPAMRef of an IPAMConfig %q is not set", ipamConfig.MetadataKey))
+		}
+
 		ipClaim := &capiv1beta1.IPAddressClaim{
+			TypeMeta: metav1.TypeMeta{
+				APIVersion: capiv1beta1.GroupVersion.String(),
+				Kind:       "IPAddressClaim",
+			},
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      ipAddrClaimName,
+				Name:      getIPAddressClaimName(req.Machine.Name, ipamConfig.MetadataKey),
 				Namespace: d.metalNamespace,
+				Labels: map[string]string{
+					validation.LabelKeyServerClaimName:      req.Machine.Name,
+					validation.LabelKeyServerClaimNamespace: d.metalNamespace,
+				},
+			},
+			Spec: capiv1beta1.IPAddressClaimSpec{
+				PoolRef: corev1.TypedLocalObjectReference{
+					APIGroup: ptr.To(ipamConfig.IPAMRef.APIGroup),
+					Kind:     ipamConfig.IPAMRef.Kind,
+					Name:     ipamConfig.IPAMRef.Name,
+				},
 			},
 		}
 
-		err := d.clientProvider.SyncClient(func(metalClient client.Client) error {
-			return metalClient.Get(ctx, client.ObjectKeyFromObject(ipClaim), ipClaim)
-		})
+		controllerutil.SetOwnerReference(serverClaim, ipClaim, d.clientProvider.GetClientScheme())
 
-		if err != nil {
-			if apierrors.IsNotFound(err) {
-				if ipClaim, err = d.createIPAddressClaim(ctx, &ipamConfig, req.Machine.Name, ipClaim.Name); err != nil {
-					return nil, err
-				}
-				klog.V(3).Info("IPAddressClaim created", "namespace", ipClaim.Namespace, "name", ipClaim.Name)
-			} else {
-				return nil, err
-			}
-		} else {
-			klog.V(3).Info("IPAddressClaim already exists", "namespace", ipClaim.Namespace, "name", ipClaim.Name)
+		if err := d.clientProvider.SyncClient(func(metalClient client.Client) error {
+			return metalClient.Patch(ctx, ipClaim, client.Apply, fieldOwner, client.ForceOwnership)
+		}); err != nil {
+			return fmt.Errorf("failed to create IPAddressClaim: %s", err.Error())
 		}
-
-		ipAddressClaims = append(ipAddressClaims, ipClaim)
 	}
 
 	klog.V(3).Info("Successfully created all IPAddressClaims", "count", len(providerSpec.IPAMConfig))
-	return ipAddressClaims, nil
-}
-
-// createIPAddressClaim creates IPAddressClaim
-func (d *metalDriver) createIPAddressClaim(ctx context.Context, ipamConfig *apiv1alpha1.IPAMConfig, machineName string, ipAddrClaimName string) (*capiv1beta1.IPAddressClaim, error) {
-	if ipamConfig.IPAMRef == nil {
-		return nil, fmt.Errorf("IPAMRef of an IPAMConfig %q is not set", ipamConfig.MetadataKey)
-	}
-
-	klog.V(3).Info("Creating IP address claim", "name", ipAddrClaimName)
-
-	ipClaim := &capiv1beta1.IPAddressClaim{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      ipAddrClaimName,
-			Namespace: d.metalNamespace,
-			Labels: map[string]string{
-				validation.LabelKeyServerClaimName:      machineName,
-				validation.LabelKeyServerClaimNamespace: d.metalNamespace,
-			},
-		},
-		Spec: capiv1beta1.IPAddressClaimSpec{
-			PoolRef: corev1.TypedLocalObjectReference{
-				APIGroup: ptr.To(ipamConfig.IPAMRef.APIGroup),
-				Kind:     ipamConfig.IPAMRef.Kind,
-				Name:     ipamConfig.IPAMRef.Name,
-			},
-		},
-	}
-
-	if err := d.clientProvider.SyncClient(func(metalClient client.Client) error {
-		return metalClient.Create(ctx, ipClaim)
-	}); err != nil {
-		return nil, fmt.Errorf("failed to create IPAddressClaim: %w", err)
-	}
-
-	return ipClaim, nil
+	return nil
 }
 
 // createServerClaim creates and applies a ServerClaim object with proper ignition data
@@ -198,7 +165,7 @@ func (d *metalDriver) createServerClaim(ctx context.Context, req *driver.CreateM
 	if err := d.clientProvider.SyncClient(func(metalClient client.Client) error {
 		return metalClient.Patch(ctx, serverClaim, client.Apply, fieldOwner, client.ForceOwnership)
 	}); err != nil {
-		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to create ServerClaim: %s", err.Error()))
+		return nil, fmt.Errorf("failed to create ServerClaim: %s", err.Error())
 	}
 
 	return serverClaim, nil
@@ -220,32 +187,9 @@ func (d *metalDriver) patchServerClaimWithRecreateAnnotation(ctx context.Context
 		}
 		return metalClient.Patch(ctx, serverClaim, client.MergeFrom(baseServerClaim))
 	}); err != nil {
-		return status.Error(codes.Internal, fmt.Sprintf("failed to create ServerClaim: %s", err.Error()))
+		return fmt.Errorf("failed to patch ServerClaim: %s", err.Error())
 	}
 
-	return nil
-}
-
-// updateServerClaimOwnershipToIPAddressClaim sets the owner reference of the IPAddressClaims to the ServerClaim
-func (d *metalDriver) updateServerClaimOwnershipToIPAddressClaim(ctx context.Context, serverClaim *metalv1alpha1.ServerClaim, ipAddressClaims []*capiv1beta1.IPAddressClaim) error {
-	klog.V(3).Info("Setting owner reference for IPAddressClaims to ServerClaim", "name", client.ObjectKeyFromObject(serverClaim))
-
-	for _, ipAddressClaim := range ipAddressClaims {
-		ipAddressBase := ipAddressClaim.DeepCopy()
-		if err := controllerutil.SetOwnerReference(serverClaim, ipAddressClaim, d.clientProvider.GetClientScheme()); err != nil {
-			return fmt.Errorf("failed to set OwnerReference: %w", err)
-		}
-
-		if err := d.clientProvider.SyncClient(func(metalClient client.Client) error {
-			return metalClient.Patch(ctx, ipAddressClaim, client.MergeFrom(ipAddressBase))
-		}); err != nil {
-			return fmt.Errorf("failed to patch IPAddressClaim: %w", err)
-		}
-
-		klog.V(3).Info("Owner reference for IPAddressClaim to ServerClaim was set",
-			"IPAddressClaim", client.ObjectKeyFromObject(ipAddressClaim).String(),
-			"ServerClaim", client.ObjectKeyFromObject(serverClaim).String())
-	}
 	return nil
 }
 

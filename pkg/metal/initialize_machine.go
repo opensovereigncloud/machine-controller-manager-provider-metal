@@ -24,6 +24,7 @@ import (
 	"k8s.io/klog/v2"
 	capiv1beta1 "sigs.k8s.io/cluster-api/exp/ipam/api/v1beta1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
 // InitializeMachine handles a machine initialization request, which includes creating an ignition secret and powering on the server
@@ -50,16 +51,12 @@ func (d *metalDriver) InitializeMachine(ctx context.Context, req *driver.Initial
 	}
 
 	if serverClaim.Spec.ServerRef == nil {
-		return nil, status.Error(codes.Uninitialized, fmt.Sprintf("ServerClaim %s/%s still not bound", d.metalNamespace, req.Machine.Name))
+		return nil, status.Error(codes.Unavailable, fmt.Sprintf("ServerClaim %s/%s still not bound", d.metalNamespace, req.Machine.Name))
 	}
 
-	addressesMetaData := make(map[string]any)
-	unavailable, err := d.getIPAddressClaimsMetadata(ctx, req, providerSpec, addressesMetaData)
+	addressesMetaData, err := d.collectIPAddressClaimsMetadata(ctx, req, serverClaim, providerSpec)
 	if err != nil {
-		if unavailable {
-			return nil, status.Error(codes.Uninitialized, fmt.Sprintf("IPAddressClaim still not bound: %v", err))
-		}
-		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to get IPAddressClaims: %v", err))
+		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to collect IPAddress metadata: %v", err))
 	}
 
 	if err := d.createIgnitionAndPowerOnServer(ctx, req, serverClaim, providerSpec, addressesMetaData); err != nil {
@@ -82,9 +79,11 @@ func isEmptyInitializeRequest(req *driver.InitializeMachineRequest) bool {
 	return req == nil || req.MachineClass == nil || req.Machine == nil || req.Secret == nil
 }
 
-// getIPAddressClaimsMetadata retrieves the IPAddressClaims metadata for the machine
-func (d *metalDriver) getIPAddressClaimsMetadata(ctx context.Context, req *driver.InitializeMachineRequest, providerSpec *apiv1alpha1.ProviderSpec, addressesMetaData map[string]any) (bool, error) {
-	klog.V(3).Info("Getting IPAddressClaims metadata for machine", "name", req.Machine.Name)
+// collectIPAddressClaimsMetadata collects the IPAddressClaims metadata for the machine
+func (d *metalDriver) collectIPAddressClaimsMetadata(ctx context.Context, req *driver.InitializeMachineRequest, serverClaim *metalv1alpha1.ServerClaim, providerSpec *apiv1alpha1.ProviderSpec) (map[string]any, error) {
+	klog.V(3).Info("Collecting IPAddressClaims metadata for machine", "name", req.Machine.Name, "namespace", d.metalNamespace)
+
+	addressesMetaData := make(map[string]any)
 
 	for _, ipamConfig := range providerSpec.IPAMConfig {
 		ipAddrClaimName := getIPAddressClaimName(req.Machine.Name, ipamConfig.MetadataKey)
@@ -98,18 +97,40 @@ func (d *metalDriver) getIPAddressClaimsMetadata(ctx context.Context, req *drive
 		if err := d.clientProvider.SyncClient(func(metalClient client.Client) error {
 			return metalClient.Get(ctx, client.ObjectKeyFromObject(ipClaim), ipClaim)
 		}); err != nil {
-			return false, fmt.Errorf("failed to get IPAddressClaim %q: %w", client.ObjectKeyFromObject(ipClaim), err)
+			return nil, fmt.Errorf("failed to get IPAddressClaim %q: %w", client.ObjectKeyFromObject(ipClaim), err)
+		}
+
+		if ipClaim.Status.AddressRef.Name == "" {
+			return nil, fmt.Errorf("IPAddressClaim %s/%s is not bound to an IPAddress", ipClaim.Namespace, ipClaim.Name)
+		}
+
+		klog.V(3).Info("Checking owner reference for IPAddressClaim", "namespace", ipClaim.Namespace, "name", ipClaim.Name)
+
+		fmt.Printf("IPAddressClaim: %v\n", ipClaim)
+
+		ownedByServerClaim, err := controllerutil.HasOwnerReference(ipClaim.OwnerReferences, serverClaim, d.clientProvider.GetClientScheme())
+		if err != nil {
+			return nil, fmt.Errorf("failed to check ownership of IPAddressClaim %q: %v", ipClaim.Name, err)
+		}
+
+		if !ownedByServerClaim {
+			ipAddressBase := ipClaim.DeepCopy()
+			if err := controllerutil.SetOwnerReference(serverClaim, ipClaim, d.clientProvider.GetClientScheme()); err != nil {
+				return nil, fmt.Errorf("failed to set OwnerReference: %w", err)
+			}
+
+			if err := d.clientProvider.SyncClient(func(metalClient client.Client) error {
+				return metalClient.Patch(ctx, ipClaim, client.MergeFrom(ipAddressBase))
+			}); err != nil {
+				return nil, fmt.Errorf("failed to patch IPAddressClaim: %w", err)
+			}
 		}
 
 		klog.V(3).Info("Validating IPAddressClaim", "namespace", ipClaim.Namespace, "name", ipClaim.Name)
 
 		validationErr := validation.ValidateIPAddressClaim(ipClaim, d.metalNamespace, req.Machine.Name)
 		if validationErr.ToAggregate() != nil && len(validationErr.ToAggregate().Errors()) > 0 {
-			return false, fmt.Errorf("failed to validate IPAddressClaim %s/%s: %v", ipClaim.Namespace, ipClaim.Name, validationErr.ToAggregate().Errors())
-		}
-
-		if ipClaim.Status.AddressRef.Name == "" {
-			return true, fmt.Errorf("IPAddressClaim %s/%s is not bound to an IPAddress", ipClaim.Namespace, ipClaim.Name)
+			return nil, fmt.Errorf("failed to validate IPAddressClaim %s/%s: %v", ipClaim.Namespace, ipClaim.Name, validationErr.ToAggregate().Errors())
 		}
 
 		ipAddr := &capiv1beta1.IPAddress{
@@ -122,7 +143,7 @@ func (d *metalDriver) getIPAddressClaimsMetadata(ctx context.Context, req *drive
 		if err := d.clientProvider.SyncClient(func(metalClient client.Client) error {
 			return metalClient.Get(ctx, client.ObjectKeyFromObject(ipAddr), ipAddr)
 		}); err != nil {
-			return false, fmt.Errorf("failed to get IPAddress %q: %w", client.ObjectKeyFromObject(ipAddr), err)
+			return nil, fmt.Errorf("failed to get IPAddress %q: %w", client.ObjectKeyFromObject(ipAddr), err)
 		}
 
 		addressesMetaData[ipamConfig.MetadataKey] = map[string]any{
@@ -131,11 +152,11 @@ func (d *metalDriver) getIPAddressClaimsMetadata(ctx context.Context, req *drive
 			"gateway": ipAddr.Spec.Gateway,
 		}
 
-		klog.V(3).Info("IP metadata found and added metadata", "namespace", ipAddr.Namespace, "name", ipAddr.Name, "ip", ipAddr.Spec.Address, "prefix", ipAddr.Spec.Prefix, "gateway", ipAddr.Spec.Gateway)
+		klog.V(3).Info("IP address metadata found", "namespace", ipAddr.Namespace, "name", ipAddr.Name, "ip", ipAddr.Spec.Address, "prefix", ipAddr.Spec.Prefix, "gateway", ipAddr.Spec.Gateway)
 	}
 
-	klog.V(3).Info("Successfully processed all IPs", "count", len(providerSpec.IPAMConfig))
-	return false, nil
+	klog.V(3).Info("Successfully processed all IPAMConfigs", "count", len(providerSpec.IPAMConfig))
+	return addressesMetaData, nil
 }
 
 // generateIgnition creates an ignition file for the machine and stores it in a secret

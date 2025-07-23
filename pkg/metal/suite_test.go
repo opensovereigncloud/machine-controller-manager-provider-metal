@@ -210,7 +210,7 @@ func newIPRef(machineName, ns, metadataKey string, providerSpec map[string]inter
 			Gateway: gateway,
 		},
 	}
-	ipAddressClaimName := fmt.Sprintf("%s-%s", machineName, metadataKey)
+	ipAddressClaimName := getIPAddressClaimName(machineName, metadataKey)
 	ipAddressClaim := &capiv1beta1.IPAddressClaim{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      ipAddressClaimName,
