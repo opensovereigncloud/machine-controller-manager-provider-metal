@@ -115,9 +115,6 @@ func (d *metalDriver) createIPAddressClaims(ctx context.Context, req *driver.Cre
 					validation.LabelKeyServerClaimName:      req.Machine.Name,
 					validation.LabelKeyServerClaimNamespace: d.metalNamespace,
 				},
-				Annotations: map[string]string{
-					validation.AnnotationKeyIPAMMetadataKey: ipamConfig.MetadataKey,
-				},
 			},
 			Spec: capiv1beta1.IPAddressClaimSpec{
 				PoolRef: corev1.TypedLocalObjectReference{

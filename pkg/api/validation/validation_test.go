@@ -4,10 +4,12 @@
 package validation
 
 import (
+	"fmt"
 	"net/netip"
 
 	"github.com/ironcore-dev/machine-controller-manager-provider-ironcore-metal/pkg/api/v1alpha1"
 
+	metalv1alpha1 "github.com/ironcore-dev/metal-operator/api/v1alpha1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/types"
@@ -105,6 +107,7 @@ var _ = Describe("validateMachineClassSpec", func() {
 var _ = Describe("ValidateIPAddressClaim", func() {
 	var (
 		ipClaim        *capiv1beta1.IPAddressClaim
+		serverClaim    *metalv1alpha1.ServerClaim
 		metalNamespace = "ns"
 		machineName    = "machine"
 	)
@@ -119,64 +122,136 @@ var _ = Describe("ValidateIPAddressClaim", func() {
 					LabelKeyServerClaimName:      machineName,
 					LabelKeyServerClaimNamespace: metalNamespace,
 				},
-				Annotations: map[string]string{
-					AnnotationKeyIPAMMetadataKey: "metadata-key",
+				OwnerReferences: []metav1.OwnerReference{
+					{
+						Kind:       "ServerClaim",
+						Name:       machineName,
+						APIVersion: metalv1alpha1.GroupVersion.String(),
+					},
 				},
+			},
+		}
+		serverClaim = &metalv1alpha1.ServerClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      machineName,
+				Namespace: metalNamespace,
+			},
+			Spec: metalv1alpha1.ServerClaimSpec{
+				Power: metalv1alpha1.PowerOn,
+				ServerSelector: &metav1.LabelSelector{
+					MatchLabels: map[string]string{"server": "label"},
+				},
+				Image: "image",
 			},
 		}
 	})
 
 	It("should return error if labels are nil", func() {
 		ipClaim.Labels = nil
-		errs := ValidateIPAddressClaim(ipClaim, metalNamespace, machineName)
-		Expect(errs).To(ContainElement(field.Required(field.NewPath("metadata").Child("labels"), "IP address claim labels are required")))
+		errs := ValidateIPAddressClaim(ipClaim, serverClaim, machineName, metalNamespace)
+		Expect(errs).To(ContainElement(field.Required(field.NewPath("metadata").Child("labels"), "IPAddressClaim labels are required")))
 	})
 
 	It("should return error if server claim name label is missing", func() {
 		delete(ipClaim.Labels, LabelKeyServerClaimName)
-		errs := ValidateIPAddressClaim(ipClaim, metalNamespace, machineName)
-		Expect(errs).To(ContainElement(field.Required(field.NewPath("metadata").Child("labels").Key(LabelKeyServerClaimName), "IP address claim has no server claim label for name")))
+		errs := ValidateIPAddressClaim(ipClaim, serverClaim, machineName, metalNamespace)
+		Expect(errs).To(ContainElement(field.Required(field.NewPath("metadata").Child("labels").Key(LabelKeyServerClaimName), "IPAddressClaim has no server claim label for name")))
 	})
 
 	It("should return error if server claim namespace label is missing", func() {
 		delete(ipClaim.Labels, LabelKeyServerClaimNamespace)
-		errs := ValidateIPAddressClaim(ipClaim, metalNamespace, machineName)
-		Expect(errs).To(ContainElement(field.Required(field.NewPath("metadata").Child("labels").Key(LabelKeyServerClaimNamespace), "IP address claim has no server claim label for namespace")))
+		errs := ValidateIPAddressClaim(ipClaim, serverClaim, machineName, metalNamespace)
+		Expect(errs).To(ContainElement(field.Required(field.NewPath("metadata").Child("labels").Key(LabelKeyServerClaimNamespace), "IPAddressClaim has no server claim label for namespace")))
 	})
 
-	It("should return error if labels do not match expected values", func() {
+	It("should return error if labels server-claim-name do not match expected value", func() {
 		ipClaim.Labels[LabelKeyServerClaimName] = "other"
-		ipClaim.Labels[LabelKeyServerClaimNamespace] = "other-ns"
-		errs := ValidateIPAddressClaim(ipClaim, metalNamespace, machineName)
+		errs := ValidateIPAddressClaim(ipClaim, serverClaim, machineName, metalNamespace)
 		Expect(errs).To(ContainElement(field.Invalid(
 			field.NewPath("metadata").Child("labels"),
 			ipClaim.Labels,
-			"IP address claim labels do not match expected values: ns/machine",
+			"IPAddressClaim label metal.ironcore.dev/server-claim-name do not match expected value: other != machine",
+		)))
+	})
+
+	It("should return error if labels server-claim-namespace do not match expected value", func() {
+		ipClaim.Labels[LabelKeyServerClaimNamespace] = "other-ns"
+		errs := ValidateIPAddressClaim(ipClaim, serverClaim, machineName, metalNamespace)
+		Expect(errs).To(ContainElement(field.Invalid(
+			field.NewPath("metadata").Child("labels"),
+			ipClaim.Labels,
+			"IPAddressClaim label metal.ironcore.dev/server-claim-namespace do not match expected value: other-ns != ns",
 		)))
 	})
 
 	It("should not return error for valid claim", func() {
-		errs := ValidateIPAddressClaim(ipClaim, metalNamespace, machineName)
+		errs := ValidateIPAddressClaim(ipClaim, serverClaim, machineName, metalNamespace)
 		Expect(errs).To(BeEmpty())
 	})
 
-	It("should return error if annotations are nil", func() {
-		ipClaim.Annotations = nil
-		errs := ValidateIPAddressClaim(ipClaim, metalNamespace, machineName)
-		Expect(errs).To(ContainElement(field.Required(field.NewPath("metadata").Child("annotations"), "IP address claim annotations are required")))
+	It("should return error if ownerReferences are empty", func() {
+		ipClaim.OwnerReferences = nil
+		errs := ValidateIPAddressClaim(ipClaim, serverClaim, machineName, metalNamespace)
+		Expect(errs).To(ContainElement(field.Required(field.NewPath("metadata").Child("ownerReferences"), "IPAddressClaim must have an owner reference")))
 	})
 
-	It("should return error if IPAM metadata key annotation is missing", func() {
-		delete(ipClaim.Annotations, AnnotationKeyIPAMMetadataKey)
-		errs := ValidateIPAddressClaim(ipClaim, metalNamespace, machineName)
-		Expect(errs).To(ContainElement(field.Required(field.NewPath("metadata").Child("annotations").Key(AnnotationKeyIPAMMetadataKey), "IP address claim has no IPAM metadata key annotation")))
-	})
-
-	It("should not return error if annotations and labels are valid", func() {
-		ipClaim.Annotations = map[string]string{
-			AnnotationKeyIPAMMetadataKey: "metadata-key",
+	It("should return error if ownerReference kind is invalid", func() {
+		ipClaim.OwnerReferences = []metav1.OwnerReference{
+			{
+				Kind:       "InvalidKind",
+				Name:       serverClaim.Name,
+				APIVersion: metalv1alpha1.GroupVersion.String(),
+			},
 		}
-		errs := ValidateIPAddressClaim(ipClaim, metalNamespace, machineName)
+		errs := ValidateIPAddressClaim(ipClaim, serverClaim, machineName, metalNamespace)
+		Expect(errs).To(ContainElement(field.Invalid(
+			field.NewPath("metadata").Child("ownerReferences"),
+			ipClaim.OwnerReferences[0],
+			fmt.Sprintf("IPAddressClaim owner reference does not match expected ServerClaim %s/%s", serverClaim.Namespace, serverClaim.Name),
+		)))
+	})
+
+	It("should return error if ownerReference name is invalid", func() {
+		ipClaim.OwnerReferences = []metav1.OwnerReference{
+			{
+				Kind:       "ServerClaim",
+				Name:       "InvalidName",
+				APIVersion: metalv1alpha1.GroupVersion.String(),
+			},
+		}
+		errs := ValidateIPAddressClaim(ipClaim, serverClaim, machineName, metalNamespace)
+		Expect(errs).To(ContainElement(field.Invalid(
+			field.NewPath("metadata").Child("ownerReferences"),
+			ipClaim.OwnerReferences[0],
+			fmt.Sprintf("IPAddressClaim owner reference does not match expected ServerClaim %s/%s", serverClaim.Namespace, serverClaim.Name),
+		)))
+	})
+
+	It("should return error if ownerReference APIVersion is invalid", func() {
+		ipClaim.OwnerReferences = []metav1.OwnerReference{
+			{
+				Kind:       "ServerClaim",
+				Name:       serverClaim.Name,
+				APIVersion: "invalid.api.version",
+			},
+		}
+		errs := ValidateIPAddressClaim(ipClaim, serverClaim, machineName, metalNamespace)
+		Expect(errs).To(ContainElement(field.Invalid(
+			field.NewPath("metadata").Child("ownerReferences"),
+			ipClaim.OwnerReferences[0],
+			fmt.Sprintf("IPAddressClaim owner reference does not match expected ServerClaim %s/%s", serverClaim.Namespace, serverClaim.Name),
+		)))
+	})
+
+	It("should not return error if ownerReferences are valid", func() {
+		ipClaim.OwnerReferences = []metav1.OwnerReference{
+			{
+				Kind:       "ServerClaim",
+				Name:       serverClaim.Name,
+				APIVersion: metalv1alpha1.GroupVersion.String(),
+			},
+		}
+		errs := ValidateIPAddressClaim(ipClaim, serverClaim, machineName, metalNamespace)
 		Expect(errs).To(BeEmpty())
 	})
 })

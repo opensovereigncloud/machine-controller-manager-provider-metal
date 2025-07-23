@@ -9,6 +9,7 @@ import (
 
 	"github.com/ironcore-dev/machine-controller-manager-provider-ironcore-metal/pkg/api/v1alpha1"
 
+	metalv1alpha1 "github.com/ironcore-dev/metal-operator/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	capiv1beta1 "sigs.k8s.io/cluster-api/exp/ipam/api/v1beta1"
@@ -19,7 +20,6 @@ const (
 	LabelKeyServerClaimNamespace = "metal.ironcore.dev/server-claim-namespace"
 
 	AnnotationKeyMCMMachineRecreate = "metal.ironcore.dev/mcm-machine-recreate"
-	AnnotationKeyIPAMMetadataKey    = "metal.ironcore.dev/ipam-metadata-key"
 )
 
 // ValidateProviderSpecAndSecret validates the provider spec and provider secret
@@ -66,38 +66,51 @@ func validateMachineClassSpec(spec *v1alpha1.ProviderSpec, fldPath *field.Path) 
 }
 
 // ValidateIPAddressClaim validates the IPAddressClaim for a given machine
-func ValidateIPAddressClaim(ipClaim *capiv1beta1.IPAddressClaim, metalNamespace, machineName string) field.ErrorList {
+func ValidateIPAddressClaim(ipClaim *capiv1beta1.IPAddressClaim, serverClaim *metalv1alpha1.ServerClaim, serverClaimName, serverClaimNamespace string) field.ErrorList {
 	var allErrs field.ErrorList
 
-	if ipClaim.Annotations == nil {
-		allErrs = append(allErrs, field.Required(field.NewPath("metadata").Child("annotations"), "IP address claim annotations are required"))
-	}
-
-	_, ipamMetadataKeyExists := ipClaim.Annotations[AnnotationKeyIPAMMetadataKey]
-	if !ipamMetadataKeyExists {
-		allErrs = append(allErrs, field.Required(field.NewPath("metadata").Child("annotations").Key(AnnotationKeyIPAMMetadataKey), "IP address claim has no IPAM metadata key annotation"))
-	}
-
 	if ipClaim.Labels == nil {
-		allErrs = append(allErrs, field.Required(field.NewPath("metadata").Child("labels"), "IP address claim labels are required"))
+		allErrs = append(allErrs, field.Required(field.NewPath("metadata").Child("labels"), "IPAddressClaim labels are required"))
 	}
 
 	name, nameExists := ipClaim.Labels[LabelKeyServerClaimName]
 	if !nameExists {
-		allErrs = append(allErrs, field.Required(field.NewPath("metadata").Child("labels").Key(LabelKeyServerClaimName), "IP address claim has no server claim label for name"))
+		allErrs = append(allErrs, field.Required(field.NewPath("metadata").Child("labels").Key(LabelKeyServerClaimName), "IPAddressClaim has no server claim label for name"))
+	}
+
+	if name != serverClaimName {
+		allErrs = append(allErrs, field.Invalid(
+			field.NewPath("metadata").Child("labels"),
+			ipClaim.Labels,
+			fmt.Sprintf("IPAddressClaim label %s do not match expected value: %s != %s", LabelKeyServerClaimName, name, serverClaimName),
+		))
 	}
 
 	namespace, namespaceExists := ipClaim.Labels[LabelKeyServerClaimNamespace]
 	if !namespaceExists {
-		allErrs = append(allErrs, field.Required(field.NewPath("metadata").Child("labels").Key(LabelKeyServerClaimNamespace), "IP address claim has no server claim label for namespace"))
+		allErrs = append(allErrs, field.Required(field.NewPath("metadata").Child("labels").Key(LabelKeyServerClaimNamespace), "IPAddressClaim has no server claim label for namespace"))
 	}
 
-	if name != machineName || namespace != metalNamespace {
+	if namespace != serverClaimNamespace {
 		allErrs = append(allErrs, field.Invalid(
 			field.NewPath("metadata").Child("labels"),
 			ipClaim.Labels,
-			fmt.Sprintf("IP address claim labels do not match expected values: %s/%s", metalNamespace, machineName),
+			fmt.Sprintf("IPAddressClaim label %s do not match expected value: %s != %s", LabelKeyServerClaimNamespace, namespace, serverClaimNamespace),
 		))
+	}
+
+	if len(ipClaim.OwnerReferences) == 0 {
+		allErrs = append(allErrs, field.Required(field.NewPath("metadata").Child("ownerReferences"), "IPAddressClaim must have an owner reference"))
+	} else {
+		for _, ownerRef := range ipClaim.OwnerReferences {
+			if ownerRef.Kind != "ServerClaim" || ownerRef.Name != serverClaim.Name || ownerRef.APIVersion != metalv1alpha1.GroupVersion.String() {
+				allErrs = append(allErrs, field.Invalid(
+					field.NewPath("metadata").Child("ownerReferences"),
+					ownerRef,
+					fmt.Sprintf("IPAddressClaim owner reference does not match expected ServerClaim %s/%s", serverClaim.Namespace, serverClaim.Name),
+				))
+			}
+		}
 	}
 
 	return allErrs

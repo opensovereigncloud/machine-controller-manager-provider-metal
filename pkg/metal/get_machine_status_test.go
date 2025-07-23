@@ -256,7 +256,8 @@ var _ = Describe("GetMachineStatus", func() {
 
 		providerSpec := maps.Clone(testing.SampleProviderSpec)
 
-		_, ipClaim := newIPRef(machineName, ns.Name, "pool-f", providerSpec, "10.11.12.13", "10.11.12.1")
+		poolName := "pool-f"
+		_, ipClaim := newIPRef(machineName, ns.Name, poolName, providerSpec, "10.11.12.13", "10.11.12.1")
 
 		By("creating machine")
 		_, err := (*drv).CreateMachine(ctx, &driver.CreateMachineRequest{
@@ -290,7 +291,7 @@ var _ = Describe("GetMachineStatus", func() {
 		})
 
 		Expect(err).To(HaveOccurred())
-		Expect(err).Should(MatchError(status.Error(codes.Uninitialized, fmt.Sprintf("not all IPAddressClaims owned by the ServerClaim, will reinitialize: IPAddressClaim %q is not owned by the ServerClaim %q", ipClaim.Name, serverClaim.Name))))
+		Expect(err).Should(MatchError(status.Error(codes.NotFound, fmt.Sprintf("unsuccessful IPAddressClaims validation, will recreate: failed to validate IPAddressClaim %s/%s-%s: [metadata.ownerReferences: Required value: IPAddressClaim must have an owner reference]", ns.Name, machineName, poolName))))
 
 		By("ensuring the cleanup of the machine")
 		DeferCleanup((*drv).DeleteMachine, &driver.DeleteMachineRequest{

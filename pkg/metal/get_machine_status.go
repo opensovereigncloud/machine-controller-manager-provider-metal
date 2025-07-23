@@ -18,7 +18,6 @@ import (
 	"k8s.io/klog/v2"
 	capiv1beta1 "sigs.k8s.io/cluster-api/exp/ipam/api/v1beta1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
 // GetMachineStatus handles a machine get status request
@@ -51,14 +50,15 @@ func (d *metalDriver) GetMachineStatus(ctx context.Context, req *driver.GetMachi
 	}
 
 	if len(serverClaim.Annotations) > 0 && serverClaim.Annotations[validation.AnnotationKeyMCMMachineRecreate] == "true" {
-		klog.V(3).Infof("Machine creation flow will be retriggered, Server still not bound %q", req.Machine.Name)
-		// MCM provider retry with codes.NotFound which triggers machine create flow
+		klog.V(3).Infof("Machine creation flow will be retriggered, Server still not bound: %q", req.Machine.Name)
+		// MCM provider retry with codes.NotFound which triggers machine creation flow
 		return nil, status.Error(codes.NotFound, fmt.Sprintf("server claim %q is marked for recreation", req.Machine.Name))
 	}
 
-	if err := d.ipAddressClaimsOwnedByServerClaim(ctx, req, serverClaim, providerSpec); err != nil {
-		// MCM provider retry with codes.Uninitialized which triggers machine initialization flow
-		return nil, status.Error(codes.Uninitialized, fmt.Sprintf("not all IPAddressClaims owned by the ServerClaim, will reinitialize: %v", err))
+	if err := d.validateIPAddressClaims(ctx, req, serverClaim, providerSpec); err != nil {
+		klog.V(3).Infof("Machine creation flow will be retriggered, IPAddressClaims validation was unsuccessful: %q", req.Machine.Name)
+		// MCM provider retry with codes.NotFound which triggers machine creation flow
+		return nil, status.Error(codes.NotFound, fmt.Sprintf("unsuccessful IPAddressClaims validation, will recreate: %v", err))
 	}
 
 	if serverClaim.Spec.Power != metalv1alpha1.PowerOn {
@@ -82,8 +82,8 @@ func isEmptyMachineStatusRequest(req *driver.GetMachineStatusRequest) bool {
 	return req == nil || req.MachineClass == nil || req.Machine == nil || req.Secret == nil
 }
 
-func (d *metalDriver) ipAddressClaimsOwnedByServerClaim(ctx context.Context, req *driver.GetMachineStatusRequest, serverClaim *metalv1alpha1.ServerClaim, providerSpec *apiv1alpha1.ProviderSpec) error {
-	klog.V(3).Info("Checking if all IPAddressClaims are owned by the ServerClaim", "name", req.Machine.Name, "namespace", d.metalNamespace)
+func (d *metalDriver) validateIPAddressClaims(ctx context.Context, req *driver.GetMachineStatusRequest, serverClaim *metalv1alpha1.ServerClaim, providerSpec *apiv1alpha1.ProviderSpec) error {
+	klog.V(3).Info("Validating IPAddressClaims", "name", req.Machine.Name, "namespace", d.metalNamespace)
 
 	for _, ipamConfig := range providerSpec.IPAMConfig {
 		if ipamConfig.IPAMRef == nil {
@@ -103,13 +103,13 @@ func (d *metalDriver) ipAddressClaimsOwnedByServerClaim(ctx context.Context, req
 			return fmt.Errorf("failed to get IPAddressClaim %q: %v", ipClaim.Name, err)
 		}
 
-		ownedByServerClaim, err := controllerutil.HasOwnerReference(ipClaim.OwnerReferences, serverClaim, d.clientProvider.GetClientScheme())
-		if err != nil {
-			return fmt.Errorf("failed to check ownership of IPAddressClaim %q: %v", ipClaim.Name, err)
+		validationErr := validation.ValidateIPAddressClaim(ipClaim, serverClaim, req.Machine.Name, d.metalNamespace)
+		if validationErr.ToAggregate() != nil && len(validationErr.ToAggregate().Errors()) > 0 {
+			return fmt.Errorf("failed to validate IPAddressClaim %s/%s: %v", ipClaim.Namespace, ipClaim.Name, validationErr.ToAggregate().Errors())
 		}
 
-		if !ownedByServerClaim {
-			return fmt.Errorf("IPAddressClaim %q is not owned by the ServerClaim %q", ipClaim.Name, serverClaim.Name)
+		if ipClaim.Status.AddressRef.Name == "" {
+			return fmt.Errorf("IPAddressClaim %s/%s still not bound", ipClaim.Namespace, ipClaim.Name)
 		}
 	}
 
