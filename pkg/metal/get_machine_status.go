@@ -113,5 +113,6 @@ func (d *metalDriver) validateIPAddressClaims(ctx context.Context, req *driver.G
 		}
 	}
 
+	klog.V(3).Info("All IPAddressClaims are valid and bound", "name", req.Machine.Name, "namespace", d.metalNamespace)
 	return nil
 }

@@ -80,10 +80,12 @@ func (d *metalDriver) DeleteMachine(ctx context.Context, req *driver.DeleteMachi
 		}
 		return false, nil
 	}); err != nil {
+		klog.V(3).Infof("Failed to wait for ServerClaim deletion: %v", err)
 		// will be retried with short retry by machine controller
 		return nil, status.Error(codes.DeadlineExceeded, err.Error())
 	}
 
+	klog.V(3).Infof("ServerClaim %q in namespace %q has been deleted", serverClaim.Name, serverClaim.Namespace)
 	return &driver.DeleteMachineResponse{}, nil
 }
 

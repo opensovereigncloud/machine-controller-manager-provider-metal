@@ -225,6 +225,8 @@ func (d *metalDriver) createIgnitionAndPowerOnServer(ctx context.Context, req *d
 		return err
 	}
 
+	klog.V(3).Info("ServerClaim powered on", "serverClaimName", client.ObjectKeyFromObject(serverClaim))
+
 	return nil
 }
 

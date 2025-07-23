@@ -170,6 +170,7 @@ func (d *metalDriver) createServerClaim(ctx context.Context, req *driver.CreateM
 		return nil, fmt.Errorf("failed to create ServerClaim: %s", err.Error())
 	}
 
+	klog.V(3).Info("Successfully created ServerClaim", "name", serverClaim.Name, "namespace", serverClaim.Namespace)
 	return serverClaim, nil
 }
 
