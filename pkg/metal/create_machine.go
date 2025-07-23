@@ -125,7 +125,9 @@ func (d *metalDriver) createIPAddressClaims(ctx context.Context, req *driver.Cre
 			},
 		}
 
-		controllerutil.SetOwnerReference(serverClaim, ipClaim, d.clientProvider.GetClientScheme())
+		if err := controllerutil.SetOwnerReference(serverClaim, ipClaim, d.clientProvider.GetClientScheme()); err != nil {
+			return fmt.Errorf("failed to set owner reference for IPAddressClaim %q: %v", ipClaim.Name, err)
+		}
 
 		if err := d.clientProvider.SyncClient(func(metalClient client.Client) error {
 			return metalClient.Patch(ctx, ipClaim, client.Apply, fieldOwner, client.ForceOwnership)
