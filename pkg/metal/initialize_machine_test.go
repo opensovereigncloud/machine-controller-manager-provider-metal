@@ -314,7 +314,7 @@ var _ = Describe("InitializeMachine", func() {
 
 		By("ensuring that the IPAddressClaim has been patched with ServerClaim owner reference")
 		Eventually(Object(ipClaim)).Should(
-			HaveField("OwnerReferences", ContainElement(
+			HaveField("ObjectMeta.OwnerReferences", ContainElement(
 				metav1.OwnerReference{
 					APIVersion: metalv1alpha1.GroupVersion.String(),
 					Kind:       "ServerClaim",
@@ -481,7 +481,7 @@ var _ = Describe("InitializeMachine", func() {
 				Secret:       providerSecret,
 			})
 			g.Expect(err).To(HaveOccurred())
-			g.Expect(err).To(MatchError(status.Error(codes.Internal, fmt.Sprintf("failed to collect IPAddress metadata: IPAddressClaim %s/%s-%s is not bound to an IPAddress", ns.Name, machineName, poolName))))
+			g.Expect(err).To(MatchError(status.Error(codes.Internal, fmt.Sprintf("failed to initialize IPAddressClaims: IPAddressClaim %s/%s-%s is not bound to an IPAddress", ns.Name, machineName, poolName))))
 		}).Should(Succeed())
 
 		DeferCleanup(k8sClient.Delete, ipClaim)

@@ -119,6 +119,9 @@ var _ = Describe("ValidateIPAddressClaim", func() {
 					LabelKeyServerClaimName:      machineName,
 					LabelKeyServerClaimNamespace: metalNamespace,
 				},
+				Annotations: map[string]string{
+					AnnotationKeyIPAMMetadataKey: "metadata-key",
+				},
 			},
 		}
 	})
@@ -153,6 +156,26 @@ var _ = Describe("ValidateIPAddressClaim", func() {
 	})
 
 	It("should not return error for valid claim", func() {
+		errs := ValidateIPAddressClaim(ipClaim, metalNamespace, machineName)
+		Expect(errs).To(BeEmpty())
+	})
+
+	It("should return error if annotations are nil", func() {
+		ipClaim.Annotations = nil
+		errs := ValidateIPAddressClaim(ipClaim, metalNamespace, machineName)
+		Expect(errs).To(ContainElement(field.Required(field.NewPath("metadata").Child("annotations"), "IP address claim annotations are required")))
+	})
+
+	It("should return error if IPAM metadata key annotation is missing", func() {
+		delete(ipClaim.Annotations, AnnotationKeyIPAMMetadataKey)
+		errs := ValidateIPAddressClaim(ipClaim, metalNamespace, machineName)
+		Expect(errs).To(ContainElement(field.Required(field.NewPath("metadata").Child("annotations").Key(AnnotationKeyIPAMMetadataKey), "IP address claim has no IPAM metadata key annotation")))
+	})
+
+	It("should not return error if annotations and labels are valid", func() {
+		ipClaim.Annotations = map[string]string{
+			AnnotationKeyIPAMMetadataKey: "metadata-key",
+		}
 		errs := ValidateIPAddressClaim(ipClaim, metalNamespace, machineName)
 		Expect(errs).To(BeEmpty())
 	})

@@ -19,6 +19,7 @@ const (
 	LabelKeyServerClaimNamespace = "metal.ironcore.dev/server-claim-namespace"
 
 	AnnotationKeyMCMMachineRecreate = "metal.ironcore.dev/mcm-machine-recreate"
+	AnnotationKeyIPAMMetadataKey    = "metal.ironcore.dev/ipam-metadata-key"
 )
 
 // ValidateProviderSpecAndSecret validates the provider spec and provider secret
@@ -67,6 +68,15 @@ func validateMachineClassSpec(spec *v1alpha1.ProviderSpec, fldPath *field.Path) 
 // ValidateIPAddressClaim validates the IPAddressClaim for a given machine
 func ValidateIPAddressClaim(ipClaim *capiv1beta1.IPAddressClaim, metalNamespace, machineName string) field.ErrorList {
 	var allErrs field.ErrorList
+
+	if ipClaim.Annotations == nil {
+		allErrs = append(allErrs, field.Required(field.NewPath("metadata").Child("annotations"), "IP address claim annotations are required"))
+	}
+
+	_, ipamMetadataKeyExists := ipClaim.Annotations[AnnotationKeyIPAMMetadataKey]
+	if !ipamMetadataKeyExists {
+		allErrs = append(allErrs, field.Required(field.NewPath("metadata").Child("annotations").Key(AnnotationKeyIPAMMetadataKey), "IP address claim has no IPAM metadata key annotation"))
+	}
 
 	if ipClaim.Labels == nil {
 		allErrs = append(allErrs, field.Required(field.NewPath("metadata").Child("labels"), "IP address claim labels are required"))
