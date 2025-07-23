@@ -106,8 +106,6 @@ func (d *metalDriver) collectIPAddressClaimsMetadata(ctx context.Context, req *d
 
 		klog.V(3).Info("Checking owner reference for IPAddressClaim", "namespace", ipClaim.Namespace, "name", ipClaim.Name)
 
-		fmt.Printf("IPAddressClaim: %v\n", ipClaim)
-
 		ownedByServerClaim, err := controllerutil.HasOwnerReference(ipClaim.OwnerReferences, serverClaim, d.clientProvider.GetClientScheme())
 		if err != nil {
 			return nil, fmt.Errorf("failed to check ownership of IPAddressClaim %q: %v", ipClaim.Name, err)
