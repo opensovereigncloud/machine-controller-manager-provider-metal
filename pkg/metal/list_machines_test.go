@@ -10,6 +10,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/gardener/machine-controller-manager/pkg/util/provider/driver"
+	"github.com/gardener/machine-controller-manager/pkg/util/provider/machinecodes/codes"
+	"github.com/gardener/machine-controller-manager/pkg/util/provider/machinecodes/status"
 	"github.com/ironcore-dev/machine-controller-manager-provider-ironcore-metal/pkg/api/v1alpha1"
 	"github.com/ironcore-dev/machine-controller-manager-provider-ironcore-metal/pkg/cmd"
 	"github.com/ironcore-dev/machine-controller-manager-provider-ironcore-metal/pkg/metal/testing"
@@ -23,11 +25,13 @@ var _ = Describe("ListMachines", func() {
 
 	It("should fail if no provider has been set", func(ctx SpecContext) {
 		By("ensuring an error if no provider has been set")
-		_, err := (*drv).ListMachines(ctx, &driver.ListMachinesRequest{
+		listMachineResponse, err := (*drv).ListMachines(ctx, &driver.ListMachinesRequest{
 			MachineClass: newMachineClass("", testing.SampleProviderSpec),
 			Secret:       providerSecret,
 		})
 		Expect(err).To(HaveOccurred())
+		Expect(listMachineResponse).To(BeNil())
+		Expect(err).To(MatchError(status.Error(codes.InvalidArgument, fmt.Sprintf("requested provider %q is not supported by the driver %q", "", v1alpha1.ProviderName))))
 	})
 
 	It("should list no machines if none have been created", func(ctx SpecContext) {
@@ -56,13 +60,13 @@ var _ = Describe("ListMachines", func() {
 		DeferCleanup(k8sClient.Delete, server)
 
 		By("creating a machine")
-		craeteMachineResponse, err := (*drv).CreateMachine(ctx, &driver.CreateMachineRequest{
+		createMachineResponse, err := (*drv).CreateMachine(ctx, &driver.CreateMachineRequest{
 			Machine:      newMachine(ns, machineNamePrefix, machineIndex, nil),
 			MachineClass: newMachineClass(v1alpha1.ProviderName, testing.SampleProviderSpec),
 			Secret:       providerSecret,
 		})
 		Expect(err).NotTo(HaveOccurred())
-		Expect(craeteMachineResponse).To(Equal(&driver.CreateMachineResponse{
+		Expect(createMachineResponse).To(Equal(&driver.CreateMachineResponse{
 			ProviderID: fmt.Sprintf("%s://%s/%s-%d", v1alpha1.ProviderName, ns.Name, machineNamePrefix, machineIndex),
 			NodeName:   machineName,
 		}))
@@ -115,25 +119,25 @@ var _ = Describe("ListMachines", func() {
 		DeferCleanup(k8sClient.Delete, server2)
 
 		By("creating the first machine")
-		craeteMachineResponse, err := (*drv).CreateMachine(ctx, &driver.CreateMachineRequest{
+		createMachineResponse, err := (*drv).CreateMachine(ctx, &driver.CreateMachineRequest{
 			Machine:      newMachine(ns, machineNamePrefix, machineIndex, nil),
 			MachineClass: newMachineClass(v1alpha1.ProviderName, testing.SampleProviderSpec),
 			Secret:       providerSecret,
 		})
 		Expect(err).NotTo(HaveOccurred())
-		Expect(craeteMachineResponse).To(Equal(&driver.CreateMachineResponse{
+		Expect(createMachineResponse).To(Equal(&driver.CreateMachineResponse{
 			ProviderID: fmt.Sprintf("%s://%s/%s-%d", v1alpha1.ProviderName, ns.Name, machineNamePrefix, machineIndex),
 			NodeName:   machineName,
 		}))
 
 		By("creating the second machine")
-		craeteMachineResponse, err = (*drv).CreateMachine(ctx, &driver.CreateMachineRequest{
+		createMachineResponse, err = (*drv).CreateMachine(ctx, &driver.CreateMachineRequest{
 			Machine:      newMachine(ns, machineNamePrefix, machineIndex2, nil),
 			MachineClass: newMachineClass(v1alpha1.ProviderName, testing.SampleProviderSpec),
 			Secret:       providerSecret,
 		})
 		Expect(err).NotTo(HaveOccurred())
-		Expect(craeteMachineResponse).To(Equal(&driver.CreateMachineResponse{
+		Expect(createMachineResponse).To(Equal(&driver.CreateMachineResponse{
 			ProviderID: fmt.Sprintf("%s://%s/%s-%d", v1alpha1.ProviderName, ns.Name, machineNamePrefix, machineIndex2),
 			NodeName:   machineName2,
 		}))

@@ -85,13 +85,13 @@ var _ = Describe("GetMachineStatus", func() {
 
 		By("initializing the machine")
 		Eventually(func(g Gomega) {
-			cmResponse, err := (*drv).InitializeMachine(ctx, &driver.InitializeMachineRequest{
+			initializeMachineResponse, err := (*drv).InitializeMachine(ctx, &driver.InitializeMachineRequest{
 				Machine:      newMachine(ns, machineNamePrefix, machineIndex, nil),
 				MachineClass: newMachineClass(v1alpha1.ProviderName, testing.SampleProviderSpec),
 				Secret:       providerSecret,
 			})
 			g.Expect(err).NotTo(HaveOccurred())
-			g.Expect(cmResponse).To(Equal(&driver.InitializeMachineResponse{
+			g.Expect(initializeMachineResponse).To(Equal(&driver.InitializeMachineResponse{
 				ProviderID: fmt.Sprintf("%s://%s/%s-%d", v1alpha1.ProviderName, ns.Name, machineNamePrefix, machineIndex),
 				NodeName:   machineName,
 			}))
@@ -133,12 +133,15 @@ var _ = Describe("GetMachineStatus", func() {
 		newIPRef(machineName, ns.Name, "pool-e", providerSpec, "10.11.12.13", "10.11.12.1")
 
 		By("creating machine")
-		_, err := (*drv).CreateMachine(ctx, &driver.CreateMachineRequest{
+		createMachineResponse, err := (*drv).CreateMachine(ctx, &driver.CreateMachineRequest{
 			Machine:      newMachine(ns, machineNamePrefix, machineIndex, nil),
 			MachineClass: newMachineClass(v1alpha1.ProviderName, providerSpec),
 			Secret:       providerSecret,
 		})
 		Expect(err).NotTo(HaveOccurred())
+		Expect(createMachineResponse).ToNot(BeNil())
+		Expect(createMachineResponse.ProviderID).To(Equal(fmt.Sprintf("%s://%s/%s-%d", v1alpha1.ProviderName, ns.Name, machineNamePrefix, machineIndex)))
+		Expect(createMachineResponse.NodeName).To(Equal(machineName))
 
 		By("patching ServerClaim with ServerRef")
 		serverClaim := &metalv1alpha1.ServerClaim{
@@ -153,13 +156,13 @@ var _ = Describe("GetMachineStatus", func() {
 
 		By("initializing the machine")
 		Eventually(func(g Gomega) {
-			cmResponse, err := (*drv).InitializeMachine(ctx, &driver.InitializeMachineRequest{
+			initializeMachineResponse, err := (*drv).InitializeMachine(ctx, &driver.InitializeMachineRequest{
 				Machine:      newMachine(ns, machineNamePrefix, machineIndex, nil),
 				MachineClass: newMachineClass(v1alpha1.ProviderName, testing.SampleProviderSpec),
 				Secret:       providerSecret,
 			})
 			g.Expect(err).NotTo(HaveOccurred())
-			g.Expect(cmResponse).To(Equal(&driver.InitializeMachineResponse{
+			g.Expect(initializeMachineResponse).To(Equal(&driver.InitializeMachineResponse{
 				ProviderID: fmt.Sprintf("%s://%s/%s-%d", v1alpha1.ProviderName, ns.Name, machineNamePrefix, machineIndex),
 				NodeName:   machineName,
 			}))
@@ -222,13 +225,14 @@ var _ = Describe("GetMachineStatus", func() {
 		})).Should(Succeed())
 
 		By("failing on the machine status when machined not initialized")
-		_, err := (*drv).GetMachineStatus(ctx, &driver.GetMachineStatusRequest{
+		getMachineStatusResponse, err := (*drv).GetMachineStatus(ctx, &driver.GetMachineStatusRequest{
 			Machine:      newMachine(ns, machineNamePrefix, machineIndex, nil),
 			MachineClass: newMachineClass(v1alpha1.ProviderName, testing.SampleProviderSpec),
 			Secret:       providerSecret,
 		})
 
 		Expect(err).To(HaveOccurred())
+		Expect(getMachineStatusResponse).To(BeNil())
 		Expect(err).Should(MatchError(status.Error(codes.NotFound, fmt.Sprintf("server claim %q is marked for recreation", machineName))))
 
 		By("ensuring the cleanup of the machine")
@@ -270,12 +274,15 @@ var _ = Describe("GetMachineStatus", func() {
 		}()
 
 		By("creating machine")
-		_, err := (*drv).CreateMachine(ctx, &driver.CreateMachineRequest{
+		createMachineResponse, err := (*drv).CreateMachine(ctx, &driver.CreateMachineRequest{
 			Machine:      newMachine(ns, machineNamePrefix, machineIndex, nil),
 			MachineClass: newMachineClass(v1alpha1.ProviderName, providerSpec),
 			Secret:       providerSecret,
 		})
 		Expect(err).NotTo(HaveOccurred())
+		Expect(createMachineResponse).ToNot(BeNil())
+		Expect(createMachineResponse.ProviderID).To(Equal(fmt.Sprintf("%s://%s/%s-%d", v1alpha1.ProviderName, ns.Name, machineNamePrefix, machineIndex)))
+		Expect(createMachineResponse.NodeName).To(Equal(machineName))
 
 		By("patching ServerClaim with ServerRef")
 		serverClaim := &metalv1alpha1.ServerClaim{
@@ -290,13 +297,13 @@ var _ = Describe("GetMachineStatus", func() {
 
 		By("initializing the machine")
 		Eventually(func(g Gomega) {
-			cmResponse, err := (*drv).InitializeMachine(ctx, &driver.InitializeMachineRequest{
+			initializeMachineResponse, err := (*drv).InitializeMachine(ctx, &driver.InitializeMachineRequest{
 				Machine:      newMachine(ns, machineNamePrefix, machineIndex, nil),
 				MachineClass: newMachineClass(v1alpha1.ProviderName, providerSpec),
 				Secret:       providerSecret,
 			})
 			g.Expect(err).NotTo(HaveOccurred())
-			g.Expect(cmResponse).To(Equal(&driver.InitializeMachineResponse{
+			g.Expect(initializeMachineResponse).To(Equal(&driver.InitializeMachineResponse{
 				ProviderID: fmt.Sprintf("%s://%s/%s-%d", v1alpha1.ProviderName, ns.Name, machineNamePrefix, machineIndex),
 				NodeName:   machineName,
 			}))
@@ -308,13 +315,16 @@ var _ = Describe("GetMachineStatus", func() {
 		})).Should(Succeed())
 
 		By("ensuring the machine status")
-		_, err = (*drv).GetMachineStatus(ctx, &driver.GetMachineStatusRequest{
+		gmsResponse, err := (*drv).GetMachineStatus(ctx, &driver.GetMachineStatusRequest{
 			Machine:      newMachine(ns, machineNamePrefix, machineIndex, nil),
 			MachineClass: newMachineClass(v1alpha1.ProviderName, providerSpec),
 			Secret:       providerSecret,
 		})
 
 		Expect(err).To(HaveOccurred())
+		Expect(gmsResponse).ToNot(BeNil())
+		Expect(gmsResponse.ProviderID).To(Equal(fmt.Sprintf("%s://%s/%s-%d", v1alpha1.ProviderName, ns.Name, machineNamePrefix, machineIndex)))
+		Expect(gmsResponse.NodeName).To(Equal(machineName))
 		Expect(err).Should(MatchError(status.Error(codes.Uninitialized, fmt.Sprintf("unsuccessful IPAddressClaims validation, will reinitialize: failed to validate IPAddressClaim %s/%s-%s: [metadata.ownerReferences: Required value: IPAddressClaim must have an owner reference]", ns.Name, machineName, poolName))))
 
 		By("ensuring the cleanup of the machine")
@@ -351,13 +361,16 @@ var _ = Describe("GetMachineStatus", func() {
 		}))
 
 		By("failing on the machine status when machined not initialized")
-		_, err := (*drv).GetMachineStatus(ctx, &driver.GetMachineStatusRequest{
+		getMachineStatusResponse, err := (*drv).GetMachineStatus(ctx, &driver.GetMachineStatusRequest{
 			Machine:      newMachine(ns, machineNamePrefix, machineIndex, nil),
 			MachineClass: newMachineClass(v1alpha1.ProviderName, testing.SampleProviderSpec),
 			Secret:       providerSecret,
 		})
 
 		Expect(err).To(HaveOccurred())
+		Expect(getMachineStatusResponse).ToNot(BeNil())
+		Expect(getMachineStatusResponse.ProviderID).To(Equal(fmt.Sprintf("%s://%s/%s-%d", v1alpha1.ProviderName, ns.Name, machineNamePrefix, machineIndex)))
+		Expect(getMachineStatusResponse.NodeName).To(Equal(machineName))
 		Expect(err).Should(MatchError(status.Error(codes.Uninitialized, fmt.Sprintf("server claim %q is still not powered on, will reinitialize", machineName))))
 
 		By("ensuring the cleanup of the machine")
@@ -405,13 +418,13 @@ var _ = Describe("GetMachineStatus using Server names", func() {
 		By("creating machine")
 
 		Eventually(func(g Gomega) {
-			cmResponse, err := (*drv).CreateMachine(ctx, &driver.CreateMachineRequest{
+			createMachineResponse, err := (*drv).CreateMachine(ctx, &driver.CreateMachineRequest{
 				Machine:      newMachine(ns, machineNamePrefix, machineIndex, nil),
 				MachineClass: newMachineClass(v1alpha1.ProviderName, testing.SampleProviderSpec),
 				Secret:       providerSecret,
 			})
 			g.Expect(err).NotTo(HaveOccurred())
-			g.Expect(cmResponse).To(Equal(&driver.CreateMachineResponse{
+			g.Expect(createMachineResponse).To(Equal(&driver.CreateMachineResponse{
 				ProviderID: fmt.Sprintf("%s://%s/%s-%d", v1alpha1.ProviderName, ns.Name, machineNamePrefix, machineIndex),
 				NodeName:   server.Name,
 			}))
@@ -419,25 +432,28 @@ var _ = Describe("GetMachineStatus using Server names", func() {
 
 		By("initializing the machine")
 		Eventually(func(g Gomega) {
-			cmResponse, err := (*drv).InitializeMachine(ctx, &driver.InitializeMachineRequest{
+			initializeMachineResponse, err := (*drv).InitializeMachine(ctx, &driver.InitializeMachineRequest{
 				Machine:      newMachine(ns, machineNamePrefix, machineIndex, nil),
 				MachineClass: newMachineClass(v1alpha1.ProviderName, testing.SampleProviderSpec),
 				Secret:       providerSecret,
 			})
 			g.Expect(err).NotTo(HaveOccurred())
-			g.Expect(cmResponse).To(Equal(&driver.InitializeMachineResponse{
+			g.Expect(initializeMachineResponse).To(Equal(&driver.InitializeMachineResponse{
 				ProviderID: fmt.Sprintf("%s://%s/%s-%d", v1alpha1.ProviderName, ns.Name, machineNamePrefix, machineIndex),
 				NodeName:   server.Name,
 			}))
 		}).Should(Succeed())
 
 		By("ensuring the machine status")
-		_, err := (*drv).GetMachineStatus(ctx, &driver.GetMachineStatusRequest{
+		getMachineStatusResponse, err := (*drv).GetMachineStatus(ctx, &driver.GetMachineStatusRequest{
 			Machine:      newMachine(ns, machineNamePrefix, machineIndex, nil),
 			MachineClass: newMachineClass(v1alpha1.ProviderName, testing.SampleProviderSpec),
 			Secret:       providerSecret,
 		})
 		Expect(err).ToNot(HaveOccurred())
+		Expect(getMachineStatusResponse).ToNot(BeNil())
+		Expect(getMachineStatusResponse.ProviderID).To(Equal(fmt.Sprintf("%s://%s/%s-%d", v1alpha1.ProviderName, ns.Name, machineNamePrefix, machineIndex)))
+		Expect(getMachineStatusResponse.NodeName).To(Equal(server.Name))
 
 		By("ensuring the cleanup of the machine")
 		DeferCleanup((*drv).DeleteMachine, &driver.DeleteMachineRequest{
@@ -502,13 +518,13 @@ var _ = Describe("GetMachineStatus using BMC names", func() {
 
 		By("creating machine")
 		Eventually(func(g Gomega) {
-			cmResponse, err := (*drv).CreateMachine(ctx, &driver.CreateMachineRequest{
+			createMachineResponse, err := (*drv).CreateMachine(ctx, &driver.CreateMachineRequest{
 				Machine:      newMachine(ns, machineNamePrefix, machineIndex, nil),
 				MachineClass: newMachineClass(v1alpha1.ProviderName, testing.SampleProviderSpec),
 				Secret:       providerSecret,
 			})
 			g.Expect(err).NotTo(HaveOccurred())
-			g.Expect(cmResponse).To(Equal(&driver.CreateMachineResponse{
+			g.Expect(createMachineResponse).To(Equal(&driver.CreateMachineResponse{
 				ProviderID: fmt.Sprintf("%s://%s/%s-%d", v1alpha1.ProviderName, ns.Name, machineNamePrefix, machineIndex),
 				NodeName:   bmc.Name,
 			}))
@@ -516,25 +532,28 @@ var _ = Describe("GetMachineStatus using BMC names", func() {
 
 		By("initializing the machine")
 		Eventually(func(g Gomega) {
-			cmResponse, err := (*drv).InitializeMachine(ctx, &driver.InitializeMachineRequest{
+			initializeMachineResponse, err := (*drv).InitializeMachine(ctx, &driver.InitializeMachineRequest{
 				Machine:      newMachine(ns, machineNamePrefix, machineIndex, nil),
 				MachineClass: newMachineClass(v1alpha1.ProviderName, testing.SampleProviderSpec),
 				Secret:       providerSecret,
 			})
 			g.Expect(err).NotTo(HaveOccurred())
-			g.Expect(cmResponse).To(Equal(&driver.InitializeMachineResponse{
+			g.Expect(initializeMachineResponse).To(Equal(&driver.InitializeMachineResponse{
 				ProviderID: fmt.Sprintf("%s://%s/%s-%d", v1alpha1.ProviderName, ns.Name, machineNamePrefix, machineIndex),
 				NodeName:   bmc.Name,
 			}))
 		}).Should(Succeed())
 
 		By("ensuring the machine status")
-		_, err := (*drv).GetMachineStatus(ctx, &driver.GetMachineStatusRequest{
+		getMachineStatusResponse, err := (*drv).GetMachineStatus(ctx, &driver.GetMachineStatusRequest{
 			Machine:      newMachine(ns, machineNamePrefix, machineIndex, nil),
 			MachineClass: newMachineClass(v1alpha1.ProviderName, testing.SampleProviderSpec),
 			Secret:       providerSecret,
 		})
 		Expect(err).ToNot(HaveOccurred())
+		Expect(getMachineStatusResponse).ToNot(BeNil())
+		Expect(getMachineStatusResponse.ProviderID).To(Equal(fmt.Sprintf("%s://%s/%s-%d", v1alpha1.ProviderName, ns.Name, machineNamePrefix, machineIndex)))
+		Expect(getMachineStatusResponse.NodeName).To(Equal(bmc.Name))
 
 		By("ensuring the cleanup of the machine")
 		DeferCleanup((*drv).DeleteMachine, &driver.DeleteMachineRequest{

@@ -63,13 +63,13 @@ var _ = Describe("DeleteMachine", func() {
 		}
 
 		By("ensuring that the machine can be deleted")
-		response, err := (*drv).DeleteMachine(ctx, &driver.DeleteMachineRequest{
+		deleteMachineResponse, err := (*drv).DeleteMachine(ctx, &driver.DeleteMachineRequest{
 			Machine:      newMachine(ns, machineNamePrefix, machineIndex, nil),
 			MachineClass: newMachineClass(v1alpha1.ProviderName, testing.SampleProviderSpec),
 			Secret:       providerSecret,
 		})
 		Expect(err).NotTo(HaveOccurred())
-		Expect(response).To(Equal(&driver.DeleteMachineResponse{}))
+		Expect(deleteMachineResponse).To(Equal(&driver.DeleteMachineResponse{}))
 
 		By("waiting for the machine to be gone")
 		Eventually(Get(serverClaim)).Should(Satisfy(apierrors.IsNotFound))
@@ -119,13 +119,13 @@ var _ = Describe("DeleteMachine", func() {
 		}
 
 		By("ensuring that the machine can be deleted")
-		response, err := (*drv).DeleteMachine(ctx, &driver.DeleteMachineRequest{
+		deleteMachineResponse, err := (*drv).DeleteMachine(ctx, &driver.DeleteMachineRequest{
 			Machine:      newMachine(ns, machineNamePrefix, machineIndex, nil),
 			MachineClass: newMachineClass(v1alpha1.ProviderName, testing.SampleProviderSpec),
 			Secret:       providerSecret,
 		})
 		Expect(err).NotTo(HaveOccurred())
-		Expect(response).To(Equal(&driver.DeleteMachineResponse{}))
+		Expect(deleteMachineResponse).To(Equal(&driver.DeleteMachineResponse{}))
 
 		By("waiting for the machine to be gone")
 		Eventually(Get(serverClaim)).Should(Satisfy(apierrors.IsNotFound))

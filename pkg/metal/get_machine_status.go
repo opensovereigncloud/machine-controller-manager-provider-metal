@@ -55,27 +55,29 @@ func (d *metalDriver) GetMachineStatus(ctx context.Context, req *driver.GetMachi
 		return nil, status.Error(codes.NotFound, fmt.Sprintf("server claim %q is marked for recreation", req.Machine.Name))
 	}
 
-	if err := d.validateIPAddressClaims(ctx, req, serverClaim, providerSpec); err != nil {
-		klog.V(3).Infof("Machine initialization flow will be retriggered, IPAddressClaims validation was unsuccessful: %q", req.Machine.Name)
-		// MCM provider retry with codes.Uninitialized which triggers machine initialization flow
-		return nil, status.Error(codes.Uninitialized, fmt.Sprintf("unsuccessful IPAddressClaims validation, will reinitialize: %v", err))
-	}
-
-	if serverClaim.Spec.Power != metalv1alpha1.PowerOn {
-		klog.V(3).Infof("Machine initialization flow will be retriggered, Server still not powered on %q", req.Machine.Name)
-		// MCM provider retry with codes.Uninitialized which triggers machine initialization flow
-		return nil, status.Error(codes.Uninitialized, fmt.Sprintf("server claim %q is still not powered on, will reinitialize", req.Machine.Name))
-	}
-
 	nodeName, err := getNodeName(ctx, d.nodeNamePolicy, serverClaim, d.metalNamespace, d.clientProvider)
 	if err != nil {
 		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to get node name: %v", err))
 	}
 
-	return &driver.GetMachineStatusResponse{
+	getMachineStatusResponse := &driver.GetMachineStatusResponse{
 		ProviderID: getProviderIDForServerClaim(serverClaim),
 		NodeName:   nodeName,
-	}, nil
+	}
+
+	if err := d.validateIPAddressClaims(ctx, req, serverClaim, providerSpec); err != nil {
+		klog.V(3).Infof("Machine initialization flow will be retriggered, IPAddressClaims validation was unsuccessful: %q", req.Machine.Name)
+		// MCM provider retry with codes.Uninitialized which triggers machine initialization flow (requires valid GetMachineStatusResponse)
+		return getMachineStatusResponse, status.Error(codes.Uninitialized, fmt.Sprintf("unsuccessful IPAddressClaims validation, will reinitialize: %v", err))
+	}
+
+	if serverClaim.Spec.Power != metalv1alpha1.PowerOn {
+		klog.V(3).Infof("Machine initialization flow will be retriggered, Server still not powered on %q", req.Machine.Name)
+		// MCM provider retry with codes.Uninitialized which triggers machine initialization flow (requires valid GetMachineStatusResponse)
+		return getMachineStatusResponse, status.Error(codes.Uninitialized, fmt.Sprintf("server claim %q is still not powered on, will reinitialize", req.Machine.Name))
+	}
+
+	return getMachineStatusResponse, nil
 }
 
 func isEmptyMachineStatusRequest(req *driver.GetMachineStatusRequest) bool {

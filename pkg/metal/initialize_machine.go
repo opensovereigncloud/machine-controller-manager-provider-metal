@@ -52,7 +52,7 @@ func (d *metalDriver) InitializeMachine(ctx context.Context, req *driver.Initial
 	}
 
 	if serverClaim.Spec.ServerRef == nil {
-		return nil, status.Error(codes.Unavailable, fmt.Sprintf("ServerClaim %s/%s still not bound", d.metalNamespace, req.Machine.Name))
+		return nil, status.Error(codes.Internal, fmt.Sprintf("ServerClaim %s/%s still not bound", d.metalNamespace, req.Machine.Name))
 	}
 
 	if err := d.createIPAddressClaims(ctx, req, serverClaim, providerSpec); err != nil {

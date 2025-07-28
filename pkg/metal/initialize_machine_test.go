@@ -73,13 +73,14 @@ var _ = Describe("InitializeMachine", func() {
 		)
 
 		By("failing on initial initialization of the machine, ServerClaim still not bound")
-		_, err := (*drv).InitializeMachine(ctx, &driver.InitializeMachineRequest{
+		initializeMachineResponse, err := (*drv).InitializeMachine(ctx, &driver.InitializeMachineRequest{
 			Machine:      newMachine(ns, machineNamePrefix, machineIndex, nil),
 			MachineClass: newMachineClass(v1alpha1.ProviderName, testing.SampleProviderSpec),
 			Secret:       providerSecret,
 		})
 		Expect(err).To(HaveOccurred())
-		Expect(err).To(MatchError(status.Error(codes.Unavailable, fmt.Sprintf(`ServerClaim %s/%s still not bound`, ns.Name, machineName))))
+		Expect(initializeMachineResponse).To(BeNil())
+		Expect(err).To(MatchError(status.Error(codes.Internal, fmt.Sprintf(`ServerClaim %s/%s still not bound`, ns.Name, machineName))))
 
 		By("patching ServerClaim with ServerRef")
 		Eventually(Update(serverClaim, func() {
@@ -164,12 +165,15 @@ var _ = Describe("InitializeMachine", func() {
 		}
 
 		By("creating machine")
-		_, err := (*drv).CreateMachine(ctx, &driver.CreateMachineRequest{
+		createMachineResponse, err := (*drv).CreateMachine(ctx, &driver.CreateMachineRequest{
 			Machine:      newMachine(ns, machineNamePrefix, machineIndex, nil),
 			MachineClass: newMachineClass(v1alpha1.ProviderName, providerSpec),
 			Secret:       providerSecret,
 		})
 		Expect(err).NotTo(HaveOccurred())
+		Expect(createMachineResponse).ToNot(BeNil())
+		Expect(createMachineResponse.ProviderID).To(Equal(fmt.Sprintf("%s://%s/%s-%d", v1alpha1.ProviderName, ns.Name, machineNamePrefix, machineIndex)))
+		Expect(createMachineResponse.NodeName).To(Equal(machineName))
 
 		By("ensuring that the server claim owns the ip address claims")
 		serverClaim := &metalv1alpha1.ServerClaim{
@@ -265,12 +269,15 @@ var _ = Describe("InitializeMachine", func() {
 		}
 
 		By("creating machine")
-		_, err := (*drv).CreateMachine(ctx, &driver.CreateMachineRequest{
+		createMachineResponse, err := (*drv).CreateMachine(ctx, &driver.CreateMachineRequest{
 			Machine:      newMachine(ns, machineNamePrefix, machineIndex, nil),
 			MachineClass: newMachineClass(v1alpha1.ProviderName, providerSpec),
 			Secret:       providerSecret,
 		})
 		Expect(err).NotTo(HaveOccurred())
+		Expect(createMachineResponse).ToNot(BeNil())
+		Expect(createMachineResponse.ProviderID).To(Equal(fmt.Sprintf("%s://%s/%s-%d", v1alpha1.ProviderName, ns.Name, machineNamePrefix, machineIndex)))
+		Expect(createMachineResponse.NodeName).To(Equal(machineName))
 
 		By("ensuring that a ServerClaim has been created")
 		serverClaim := &metalv1alpha1.ServerClaim{
@@ -348,27 +355,33 @@ var _ = Describe("InitializeMachine", func() {
 
 	It("should fail if the machine request is empty", func(ctx SpecContext) {
 		By("failing if the machine request is empty")
-		_, err := (*drv).InitializeMachine(ctx, nil)
+		initializeMachineResponse, err := (*drv).InitializeMachine(ctx, nil)
+		Expect(err).Should(HaveOccurred())
+		Expect(initializeMachineResponse).To(BeNil())
 		Expect(err).Should(MatchError(status.Error(codes.InvalidArgument, "received empty InitializeMachineRequest")))
 	})
 
 	It("should fail if the machine request is not complete", func(ctx SpecContext) {
 		By("failing if the machine request is not complete")
-		_, err := (*drv).InitializeMachine(ctx, &driver.InitializeMachineRequest{
+		initializeMachineResponse, err := (*drv).InitializeMachine(ctx, &driver.InitializeMachineRequest{
 			Machine:      newMachine(ns, machineNamePrefix, -1, nil),
 			MachineClass: nil,
 			Secret:       providerSecret,
 		})
+		Expect(err).Should(HaveOccurred())
+		Expect(initializeMachineResponse).To(BeNil())
 		Expect(err).Should(MatchError(status.Error(codes.InvalidArgument, "received empty InitializeMachineRequest")))
 	})
 
 	It("should fail if the machine request has a wrong provider", func(ctx SpecContext) {
 		By("failing if the wrong provider is set")
-		_, err := (*drv).InitializeMachine(ctx, &driver.InitializeMachineRequest{
+		initializeMachineResponse, err := (*drv).InitializeMachine(ctx, &driver.InitializeMachineRequest{
 			Machine:      newMachine(ns, machineNamePrefix, -1, nil),
 			MachineClass: newMachineClass("foo", testing.SampleProviderSpec),
 			Secret:       providerSecret,
 		})
+		Expect(err).Should(HaveOccurred())
+		Expect(initializeMachineResponse).To(BeNil())
 		Expect(err).Should(MatchError(status.Error(codes.InvalidArgument, `requested provider "foo" is not supported by the driver "ironcore-metal"`)))
 	})
 
@@ -376,11 +389,13 @@ var _ = Describe("InitializeMachine", func() {
 		By("failing if the provided secret do not contain userData")
 		notCompleteSecret := providerSecret.DeepCopy()
 		notCompleteSecret.Data["userData"] = nil
-		_, err := (*drv).InitializeMachine(ctx, &driver.InitializeMachineRequest{
+		initializeMachineResponse, err := (*drv).InitializeMachine(ctx, &driver.InitializeMachineRequest{
 			Machine:      newMachine(ns, machineNamePrefix, -1, nil),
 			MachineClass: newMachineClass(v1alpha1.ProviderName, testing.SampleProviderSpec),
 			Secret:       notCompleteSecret,
 		})
+		Expect(err).Should(HaveOccurred())
+		Expect(initializeMachineResponse).To(BeNil())
 		Expect(err).Should(MatchError(status.Error(codes.Internal, `failed to get provider spec: failed to validate provider spec and secret: [userData: Required value: userData is required]`)))
 	})
 
@@ -425,13 +440,14 @@ var _ = Describe("InitializeMachine", func() {
 		)
 
 		By("failing on initial initialization of the  machine, ServerClaim still not bound")
-		_, err := (*drv).InitializeMachine(ctx, &driver.InitializeMachineRequest{
+		initializeMachineResponse, err := (*drv).InitializeMachine(ctx, &driver.InitializeMachineRequest{
 			Machine:      newMachine(ns, machineNamePrefix, machineIndex, nil),
 			MachineClass: newMachineClass(v1alpha1.ProviderName, testing.SampleProviderSpec),
 			Secret:       providerSecret,
 		})
 		Expect(err).To(HaveOccurred())
-		Expect(err).To(MatchError(status.Error(codes.Unavailable, fmt.Sprintf(`ServerClaim %s/%s still not bound`, ns.Name, machineName))))
+		Expect(initializeMachineResponse).To(BeNil())
+		Expect(err).To(MatchError(status.Error(codes.Internal, fmt.Sprintf(`ServerClaim %s/%s still not bound`, ns.Name, machineName))))
 
 		By("ensuring the cleanup of the machine")
 		DeferCleanup((*drv).DeleteMachine, &driver.DeleteMachineRequest{
@@ -463,12 +479,15 @@ var _ = Describe("InitializeMachine", func() {
 		_, ipClaim := newIPRef(machineName, ns.Name, poolName, providerSpec, "10.11.14.13", "10.11.14.1")
 
 		By("creating machine")
-		_, err := (*drv).CreateMachine(ctx, &driver.CreateMachineRequest{
+		createMachineResponse, err := (*drv).CreateMachine(ctx, &driver.CreateMachineRequest{
 			Machine:      newMachine(ns, machineNamePrefix, machineIndex, nil),
 			MachineClass: newMachineClass(v1alpha1.ProviderName, providerSpec),
 			Secret:       providerSecret,
 		})
 		Expect(err).NotTo(HaveOccurred())
+		Expect(createMachineResponse).ToNot(BeNil())
+		Expect(createMachineResponse.ProviderID).To(Equal(fmt.Sprintf("%s://%s/%s-%d", v1alpha1.ProviderName, ns.Name, machineNamePrefix, machineIndex)))
+		Expect(createMachineResponse.NodeName).To(Equal(machineName))
 
 		By("ensuring that a ServerClaim has been created")
 		serverClaim := &metalv1alpha1.ServerClaim{
@@ -489,12 +508,13 @@ var _ = Describe("InitializeMachine", func() {
 
 		By("initialization of the machine")
 		Eventually(func(g Gomega) {
-			_, err := (*drv).InitializeMachine(ctx, &driver.InitializeMachineRequest{
+			initializeMachineResponse, err := (*drv).InitializeMachine(ctx, &driver.InitializeMachineRequest{
 				Machine:      newMachine(ns, machineNamePrefix, machineIndex, nil),
 				MachineClass: newMachineClass(v1alpha1.ProviderName, providerSpec),
 				Secret:       providerSecret,
 			})
 			g.Expect(err).To(HaveOccurred())
+			g.Expect(initializeMachineResponse).To(BeNil())
 			g.Expect(err).To(MatchError(status.Error(codes.Internal, fmt.Sprintf("failed to collect IPAddress metadata: IPAddressClaim %s/%s-%s not bound", ns.Name, machineName, poolName))))
 		}).Should(Succeed())
 
@@ -558,11 +578,13 @@ var _ = Describe("InitializeMachine", func() {
 		})).Should(Succeed())
 
 		By("failing if the IPAM ref is not set")
-		_, err := (*drv).InitializeMachine(ctx, &driver.InitializeMachineRequest{
+		initializeMachineResponse, err := (*drv).InitializeMachine(ctx, &driver.InitializeMachineRequest{
 			Machine:      newMachine(ns, machineNamePrefix, machineIndex, nil),
 			MachineClass: newMachineClass(v1alpha1.ProviderName, providerSpec),
 			Secret:       providerSecret,
 		})
+		Expect(err).To(HaveOccurred())
+		Expect(initializeMachineResponse).To(BeNil())
 		Expect(err).Should(MatchError(status.Error(codes.Internal, `failed to create IPAddressClaims: machine codes error: code = [Internal] message = [IPAMRef of an IPAMConfig "foo" is not set]`)))
 	})
 })
@@ -602,13 +624,13 @@ var _ = Describe("InitializeMachine with Server name as hostname", func() {
 
 		By("creating machine")
 		Eventually(func(g Gomega) {
-			cmResponse, err := (*drv).CreateMachine(ctx, &driver.CreateMachineRequest{
+			createMachineResponse, err := (*drv).CreateMachine(ctx, &driver.CreateMachineRequest{
 				Machine:      newMachine(ns, machineNamePrefix, machineIndex, nil),
 				MachineClass: newMachineClass(v1alpha1.ProviderName, testing.SampleProviderSpec),
 				Secret:       providerSecret,
 			})
 			g.Expect(err).NotTo(HaveOccurred())
-			g.Expect(cmResponse).To(Equal(&driver.CreateMachineResponse{
+			g.Expect(createMachineResponse).To(Equal(&driver.CreateMachineResponse{
 				ProviderID: fmt.Sprintf("%s://%s/%s-%d", v1alpha1.ProviderName, ns.Name, machineNamePrefix, machineIndex),
 				NodeName:   server.Name,
 			}))

@@ -93,40 +93,44 @@ var _ = Describe("CreateMachine", func() {
 
 	It("should fail if the machine request is empty", func(ctx SpecContext) {
 		By("failing if the machine request is empty")
-		_, err := (*drv).CreateMachine(ctx, nil)
+		createMachineResponse, err := (*drv).CreateMachine(ctx, nil)
 		Expect(err).Should(MatchError(status.Error(codes.InvalidArgument, "received empty CreateMachineRequest")))
+		Expect(createMachineResponse).To(BeNil())
 	})
 
 	It("should fail if the machine request is not complete", func(ctx SpecContext) {
 		By("failing if the machine request is not complete")
-		_, err := (*drv).CreateMachine(ctx, &driver.CreateMachineRequest{
+		createMachineResponse, err := (*drv).CreateMachine(ctx, &driver.CreateMachineRequest{
 			Machine:      newMachine(ns, machineNamePrefix, -1, nil),
 			MachineClass: nil,
 			Secret:       providerSecret,
 		})
 		Expect(err).Should(MatchError(status.Error(codes.InvalidArgument, "received empty CreateMachineRequest")))
+		Expect(createMachineResponse).To(BeNil())
 	})
 
 	It("should fail if the machine request has a wrong provider", func(ctx SpecContext) {
 		By("failing if the wrong provider is set")
-		_, err := (*drv).CreateMachine(ctx, &driver.CreateMachineRequest{
+		createMachineResponse, err := (*drv).CreateMachine(ctx, &driver.CreateMachineRequest{
 			Machine:      newMachine(ns, machineNamePrefix, -1, nil),
 			MachineClass: newMachineClass("foo", testing.SampleProviderSpec),
 			Secret:       providerSecret,
 		})
 		Expect(err).Should(MatchError(status.Error(codes.InvalidArgument, `requested provider "foo" is not supported by the driver "ironcore-metal"`)))
+		Expect(createMachineResponse).To(BeNil())
 	})
 
 	It("should fail if the provided secret do not contain userData", func(ctx SpecContext) {
 		By("failing if the provided secret do not contain userData")
 		notCompleteSecret := providerSecret.DeepCopy()
 		notCompleteSecret.Data["userData"] = nil
-		_, err := (*drv).CreateMachine(ctx, &driver.CreateMachineRequest{
+		createMachineResponse, err := (*drv).CreateMachine(ctx, &driver.CreateMachineRequest{
 			Machine:      newMachine(ns, machineNamePrefix, -1, nil),
 			MachineClass: newMachineClass(v1alpha1.ProviderName, testing.SampleProviderSpec),
 			Secret:       notCompleteSecret,
 		})
 		Expect(err).Should(MatchError(status.Error(codes.Internal, `failed to get provider spec: failed to validate provider spec and secret: [userData: Required value: userData is required]`)))
+		Expect(createMachineResponse).To(BeNil())
 	})
 })
 
@@ -165,13 +169,13 @@ var _ = Describe("CreateMachine with Server name as hostname", func() {
 
 		By("creating machine")
 		Eventually(func(g Gomega) {
-			cmResponse, err := (*drv).CreateMachine(ctx, &driver.CreateMachineRequest{
+			createMachineResponse, err := (*drv).CreateMachine(ctx, &driver.CreateMachineRequest{
 				Machine:      newMachine(ns, machineNamePrefix, machineIndex, nil),
 				MachineClass: newMachineClass(v1alpha1.ProviderName, testing.SampleProviderSpec),
 				Secret:       providerSecret,
 			})
 			g.Expect(err).NotTo(HaveOccurred())
-			g.Expect(cmResponse).To(Equal(&driver.CreateMachineResponse{
+			g.Expect(createMachineResponse).To(Equal(&driver.CreateMachineResponse{
 				ProviderID: fmt.Sprintf("%s://%s/%s-%d", v1alpha1.ProviderName, ns.Name, machineNamePrefix, machineIndex),
 				NodeName:   server.Name,
 			}))
@@ -222,12 +226,13 @@ var _ = Describe("CreateMachine with Server name as hostname", func() {
 		DeferCleanup(k8sClient.Delete, server)
 
 		By("creating machine")
-		_, err := (*drv).CreateMachine(ctx, &driver.CreateMachineRequest{
+		createMachineResponse, err := (*drv).CreateMachine(ctx, &driver.CreateMachineRequest{
 			Machine:      newMachine(ns, machineNamePrefix, machineIndex, nil),
 			MachineClass: newMachineClass(v1alpha1.ProviderName, testing.SampleProviderSpec),
 			Secret:       providerSecret,
 		})
 		Expect(err).To(HaveOccurred())
+		Expect(createMachineResponse).To(BeNil())
 		Expect(err).To(MatchError(status.Error(codes.Unavailable, fmt.Sprintf(`server %q in namespace %q is still not bound`, machineName, ns.Name))))
 
 		By("ensuring that a ServerClaim has been created and has the recreate annotation")
@@ -256,12 +261,15 @@ var _ = Describe("CreateMachine with Server name as hostname", func() {
 
 		By("ensuring that a server claim did not have recreate annotation after successful creation")
 		Eventually(func(g Gomega) {
-			_, err := (*drv).CreateMachine(ctx, &driver.CreateMachineRequest{
+			createMachineResponse, err := (*drv).CreateMachine(ctx, &driver.CreateMachineRequest{
 				Machine:      newMachine(ns, machineNamePrefix, machineIndex, nil),
 				MachineClass: newMachineClass(v1alpha1.ProviderName, testing.SampleProviderSpec),
 				Secret:       providerSecret,
 			})
 			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(createMachineResponse).ToNot(BeNil())
+			g.Expect(createMachineResponse.ProviderID).To(Equal(fmt.Sprintf("%s://%s/%s-%d", v1alpha1.ProviderName, ns.Name, machineNamePrefix, machineIndex)))
+			g.Expect(createMachineResponse.NodeName).To(Equal(server.Name))
 		}).Should(Succeed())
 
 		Eventually(Object(serverClaim)).ShouldNot(HaveField("ObjectMeta.Annotations", HaveKey(validation.AnnotationKeyMCMMachineRecreate)))
@@ -312,13 +320,14 @@ var _ = Describe("CreateMachine using BMC names", func() {
 		DeferCleanup(k8sClient.Delete, server)
 
 		By("creating machine")
-		_, err := (*drv).CreateMachine(ctx, &driver.CreateMachineRequest{
+		createMachineResponse, err := (*drv).CreateMachine(ctx, &driver.CreateMachineRequest{
 			Machine:      newMachine(ns, machineNamePrefix, machineIndex, nil),
 			MachineClass: newMachineClass(v1alpha1.ProviderName, testing.SampleProviderSpec),
 			Secret:       providerSecret,
 		})
 
 		Expect(err).To(HaveOccurred())
+		Expect(createMachineResponse).To(BeNil())
 		Expect(err).To(MatchError(status.Error(codes.Unavailable, fmt.Sprintf(`server %q in namespace %q is still not bound`, machineName, ns.Name))))
 
 		By("ensuring that a ServerClaim has been created and has the recreate annotation")
@@ -347,12 +356,15 @@ var _ = Describe("CreateMachine using BMC names", func() {
 
 		By("ensuring that a server claim did not have recreate annotation after successful creation")
 		Eventually(func(g Gomega) {
-			_, err := (*drv).CreateMachine(ctx, &driver.CreateMachineRequest{
+			createMachineResponse, err := (*drv).CreateMachine(ctx, &driver.CreateMachineRequest{
 				Machine:      newMachine(ns, machineNamePrefix, machineIndex, nil),
 				MachineClass: newMachineClass(v1alpha1.ProviderName, testing.SampleProviderSpec),
 				Secret:       providerSecret,
 			})
 			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(createMachineResponse).ToNot(BeNil())
+			g.Expect(createMachineResponse.ProviderID).To(Equal(fmt.Sprintf("%s://%s/%s-%d", v1alpha1.ProviderName, ns.Name, machineNamePrefix, machineIndex)))
+			g.Expect(createMachineResponse.NodeName).To(Equal(bmc.Name))
 		}).Should(Succeed())
 
 		Eventually(Object(serverClaim)).ShouldNot(HaveField("ObjectMeta.Annotations", HaveKey(validation.AnnotationKeyMCMMachineRecreate)))
