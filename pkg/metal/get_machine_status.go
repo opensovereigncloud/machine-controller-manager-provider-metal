@@ -56,9 +56,9 @@ func (d *metalDriver) GetMachineStatus(ctx context.Context, req *driver.GetMachi
 	}
 
 	if err := d.validateIPAddressClaims(ctx, req, serverClaim, providerSpec); err != nil {
-		klog.V(3).Infof("Machine creation flow will be retriggered, IPAddressClaims validation was unsuccessful: %q", req.Machine.Name)
-		// MCM provider retry with codes.NotFound which triggers machine creation flow
-		return nil, status.Error(codes.NotFound, fmt.Sprintf("unsuccessful IPAddressClaims validation, will recreate: %v", err))
+		klog.V(3).Infof("Machine initialization flow will be retriggered, IPAddressClaims validation was unsuccessful: %q", req.Machine.Name)
+		// MCM provider retry with codes.Uninitialized which triggers machine initialization flow
+		return nil, status.Error(codes.Uninitialized, fmt.Sprintf("unsuccessful IPAddressClaims validation, will reinitialize: %v", err))
 	}
 
 	if serverClaim.Spec.Power != metalv1alpha1.PowerOn {

@@ -5,7 +5,6 @@ package metal
 
 import (
 	"fmt"
-	"maps"
 
 	"github.com/gardener/machine-controller-manager/pkg/util/provider/driver"
 	"github.com/gardener/machine-controller-manager/pkg/util/provider/machinecodes/codes"
@@ -21,8 +20,6 @@ import (
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
-	capiv1beta1 "sigs.k8s.io/cluster-api/exp/ipam/api/v1beta1"
 	. "sigs.k8s.io/controller-runtime/pkg/envtest/komega"
 )
 
@@ -94,85 +91,6 @@ var _ = Describe("CreateMachine", func() {
 		})
 	})
 
-	It("should create CAPI IPAddressClaims if ipamConfig is specified", func(ctx SpecContext) {
-		machineIndex := 2
-		machineName := fmt.Sprintf("%s-%d", machineNamePrefix, machineIndex)
-		By("creating a server")
-		server := &metalv1alpha1.Server{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: "test-server",
-			},
-			Spec: metalv1alpha1.ServerSpec{
-				SystemUUID: "12345",
-			},
-		}
-		Expect(k8sClient.Create(ctx, server)).To(Succeed())
-		DeferCleanup(k8sClient.Delete, server)
-
-		providerSpec := maps.Clone(testing.SampleProviderSpec)
-
-		ipClaims := []*capiv1beta1.IPAddressClaim{}
-		for _, pool := range []string{"pool-a", "pool-b"} {
-			ip, ipClaim := newIPRef(machineName, ns.Name, pool, providerSpec, "10.11.12.13", "10.11.12.1")
-
-			Expect(k8sClient.Create(ctx, ip)).To(Succeed())
-			DeferCleanup(k8sClient.Delete, ip)
-
-			ipClaims = append(ipClaims, ipClaim)
-		}
-
-		By("creating machine")
-		_, err := (*drv).CreateMachine(ctx, &driver.CreateMachineRequest{
-			Machine:      newMachine(ns, machineNamePrefix, machineIndex, nil),
-			MachineClass: newMachineClass(v1alpha1.ProviderName, providerSpec),
-			Secret:       providerSecret,
-		})
-		Expect(err).NotTo(HaveOccurred())
-
-		By("ensuring that the server claim owns the ip address claims")
-		serverClaim := &metalv1alpha1.ServerClaim{
-			ObjectMeta: metav1.ObjectMeta{
-				Namespace: ns.Name,
-				Name:      machineName,
-			},
-		}
-		Eventually(Object(serverClaim)).Should(
-			HaveField("Spec.Power", metalv1alpha1.PowerOff),
-		)
-
-		for _, ipClaim := range ipClaims {
-			Eventually(Object(ipClaim)).Should(SatisfyAll(
-				HaveField("ObjectMeta.Labels", map[string]string{
-					validation.LabelKeyServerClaimName:      machineName,
-					validation.LabelKeyServerClaimNamespace: ns.Name,
-				}),
-				HaveField("ObjectMeta.OwnerReferences", ContainElement(
-					metav1.OwnerReference{
-						APIVersion: metalv1alpha1.GroupVersion.String(),
-						Kind:       "ServerClaim",
-						Name:       serverClaim.Name,
-						UID:        serverClaim.UID,
-					},
-				)),
-				HaveField("Spec.PoolRef", BeElementOf([]corev1.TypedLocalObjectReference{
-					{
-						APIGroup: ptr.To("ipam.cluster.x-k8s.io"),
-						Kind:     "GlobalInClusterIPPool",
-						Name:     ipClaim.Name,
-					},
-				}),
-				)))
-			DeferCleanup(k8sClient.Delete, ipClaim)
-		}
-
-		By("ensuring the cleanup of the machine")
-		DeferCleanup((*drv).DeleteMachine, &driver.DeleteMachineRequest{
-			Machine:      newMachine(ns, machineNamePrefix, machineIndex, nil),
-			MachineClass: newMachineClass(v1alpha1.ProviderName, testing.SampleProviderSpec),
-			Secret:       providerSecret,
-		})
-	})
-
 	It("should fail if the machine request is empty", func(ctx SpecContext) {
 		By("failing if the machine request is empty")
 		_, err := (*drv).CreateMachine(ctx, nil)
@@ -209,23 +127,6 @@ var _ = Describe("CreateMachine", func() {
 			Secret:       notCompleteSecret,
 		})
 		Expect(err).Should(MatchError(status.Error(codes.Internal, `failed to get provider spec: failed to validate provider spec and secret: [userData: Required value: userData is required]`)))
-	})
-
-	It("should fail if the IPAM ref is not set", func(ctx SpecContext) {
-		providerSpec := maps.Clone(testing.SampleProviderSpec)
-		providerSpec["ipamConfig"] = []v1alpha1.IPAMConfig{
-			{
-				MetadataKey: "foo",
-			},
-		}
-
-		By("failing if the IPAM ref is not set")
-		_, err := (*drv).CreateMachine(ctx, &driver.CreateMachineRequest{
-			Machine:      newMachine(ns, machineNamePrefix, -1, nil),
-			MachineClass: newMachineClass(v1alpha1.ProviderName, providerSpec),
-			Secret:       providerSecret,
-		})
-		Expect(err).Should(MatchError(status.Error(codes.Internal, `failed to create IPAddressClaims: machine codes error: code = [Internal] message = [IPAMRef of an IPAMConfig "foo" is not set]`)))
 	})
 })
 

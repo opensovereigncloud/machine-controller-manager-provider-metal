@@ -239,8 +239,8 @@ var _ = Describe("GetMachineStatus", func() {
 		})
 	})
 
-	It("should fail when IPAddress claim not owned by ServerClaim", func(ctx SpecContext) {
-		machineIndex := 4
+	It("should fail when IPAddressClaim not owned by ServerClaim", func(ctx SpecContext) {
+		machineIndex := 5
 		machineName := fmt.Sprintf("%s-%d", machineNamePrefix, machineIndex)
 		By("creating a server")
 		server := &metalv1alpha1.Server{
@@ -257,7 +257,17 @@ var _ = Describe("GetMachineStatus", func() {
 		providerSpec := maps.Clone(testing.SampleProviderSpec)
 
 		poolName := "pool-f"
-		_, ipClaim := newIPRef(machineName, ns.Name, poolName, providerSpec, "10.11.12.13", "10.11.12.1")
+		ip, ipClaim := newIPRef(machineName, ns.Name, poolName, providerSpec, "10.11.12.13", "10.11.12.1")
+
+		Expect(k8sClient.Create(ctx, ip)).To(Succeed())
+		DeferCleanup(k8sClient.Delete, ip)
+
+		go func() {
+			defer GinkgoRecover()
+			Eventually(UpdateStatus(ipClaim, func() {
+				ipClaim.Status.AddressRef.Name = ip.Name
+			})).Should(Succeed())
+		}()
 
 		By("creating machine")
 		_, err := (*drv).CreateMachine(ctx, &driver.CreateMachineRequest{
@@ -278,6 +288,20 @@ var _ = Describe("GetMachineStatus", func() {
 			serverClaim.Spec.ServerRef = &corev1.LocalObjectReference{Name: server.Name}
 		})).Should(Succeed())
 
+		By("initializing the machine")
+		Eventually(func(g Gomega) {
+			cmResponse, err := (*drv).InitializeMachine(ctx, &driver.InitializeMachineRequest{
+				Machine:      newMachine(ns, machineNamePrefix, machineIndex, nil),
+				MachineClass: newMachineClass(v1alpha1.ProviderName, providerSpec),
+				Secret:       providerSecret,
+			})
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(cmResponse).To(Equal(&driver.InitializeMachineResponse{
+				ProviderID: fmt.Sprintf("%s://%s/%s-%d", v1alpha1.ProviderName, ns.Name, machineNamePrefix, machineIndex),
+				NodeName:   machineName,
+			}))
+		}).Should(Succeed())
+
 		By("by clearing IPAddressClaim owner references")
 		Eventually(Update(ipClaim, func() {
 			ipClaim.OwnerReferences = []metav1.OwnerReference{}
@@ -291,7 +315,7 @@ var _ = Describe("GetMachineStatus", func() {
 		})
 
 		Expect(err).To(HaveOccurred())
-		Expect(err).Should(MatchError(status.Error(codes.NotFound, fmt.Sprintf("unsuccessful IPAddressClaims validation, will recreate: failed to validate IPAddressClaim %s/%s-%s: [metadata.ownerReferences: Required value: IPAddressClaim must have an owner reference]", ns.Name, machineName, poolName))))
+		Expect(err).Should(MatchError(status.Error(codes.Uninitialized, fmt.Sprintf("unsuccessful IPAddressClaims validation, will reinitialize: failed to validate IPAddressClaim %s/%s-%s: [metadata.ownerReferences: Required value: IPAddressClaim must have an owner reference]", ns.Name, machineName, poolName))))
 
 		By("ensuring the cleanup of the machine")
 		DeferCleanup((*drv).DeleteMachine, &driver.DeleteMachineRequest{
@@ -302,7 +326,7 @@ var _ = Describe("GetMachineStatus", func() {
 	})
 
 	It("should fail when machine not powered on", func(ctx SpecContext) {
-		machineIndex := 5
+		machineIndex := 6
 		machineName := fmt.Sprintf("%s-%d", machineNamePrefix, machineIndex)
 		By("creating a server")
 		server := &metalv1alpha1.Server{
@@ -350,7 +374,7 @@ var _ = Describe("GetMachineStatus using Server names", func() {
 	machineNamePrefix := "machine-status"
 
 	It("should create a machine and ensure status", func(ctx SpecContext) {
-		machineIndex := 5
+		machineIndex := 7
 		machineName := fmt.Sprintf("%s-%d", machineNamePrefix, machineIndex)
 		By("creating a server")
 		server := &metalv1alpha1.Server{
@@ -430,7 +454,7 @@ var _ = Describe("GetMachineStatus using BMC names", func() {
 
 	It("should create a machine and ensure status", func(ctx SpecContext) {
 		By("creating a BMC")
-		machineIndex := 6
+		machineIndex := 8
 		machineName := fmt.Sprintf("%s-%d", machineNamePrefix, machineIndex)
 		bmc := &metalv1alpha1.BMC{
 			ObjectMeta: metav1.ObjectMeta{

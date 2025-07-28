@@ -13,6 +13,7 @@ import (
 	"github.com/gardener/machine-controller-manager/pkg/util/provider/machinecodes/codes"
 	"github.com/gardener/machine-controller-manager/pkg/util/provider/machinecodes/status"
 	"github.com/ironcore-dev/machine-controller-manager-provider-ironcore-metal/pkg/api/v1alpha1"
+	"github.com/ironcore-dev/machine-controller-manager-provider-ironcore-metal/pkg/api/validation"
 	"github.com/ironcore-dev/machine-controller-manager-provider-ironcore-metal/pkg/cmd"
 	"github.com/ironcore-dev/machine-controller-manager-provider-ironcore-metal/pkg/metal/testing"
 
@@ -22,6 +23,8 @@ import (
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
+	capiv1beta1 "sigs.k8s.io/cluster-api/exp/ipam/api/v1beta1"
 	. "sigs.k8s.io/controller-runtime/pkg/envtest/komega"
 )
 
@@ -117,6 +120,109 @@ var _ = Describe("InitializeMachine", func() {
 			HaveField("Spec.Power", metalv1alpha1.PowerOn),
 			HaveField("Spec.IgnitionSecretRef.Name", machineName),
 		))
+
+		By("ensuring the cleanup of the machine")
+		DeferCleanup((*drv).DeleteMachine, &driver.DeleteMachineRequest{
+			Machine:      newMachine(ns, machineNamePrefix, machineIndex, nil),
+			MachineClass: newMachineClass(v1alpha1.ProviderName, testing.SampleProviderSpec),
+			Secret:       providerSecret,
+		})
+	})
+
+	It("should create CAPI IPAddressClaims if ipamConfig is specified", func(ctx SpecContext) {
+		machineIndex := 2
+		machineName := fmt.Sprintf("%s-%d", machineNamePrefix, machineIndex)
+		By("creating a server")
+		server := &metalv1alpha1.Server{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "test-server",
+			},
+			Spec: metalv1alpha1.ServerSpec{
+				SystemUUID: "12345",
+			},
+		}
+		Expect(k8sClient.Create(ctx, server)).To(Succeed())
+		DeferCleanup(k8sClient.Delete, server)
+
+		providerSpec := maps.Clone(testing.SampleProviderSpec)
+
+		ipClaims := []*capiv1beta1.IPAddressClaim{}
+		for _, pool := range []string{"pool-a", "pool-b"} {
+			ip, ipClaim := newIPRef(machineName, ns.Name, pool, providerSpec, "10.11.12.13", "10.11.12.1")
+
+			Expect(k8sClient.Create(ctx, ip)).To(Succeed())
+			DeferCleanup(k8sClient.Delete, ip)
+
+			ipClaims = append(ipClaims, ipClaim)
+
+			go func() {
+				defer GinkgoRecover()
+				Eventually(UpdateStatus(ipClaim, func() {
+					ipClaim.Status.AddressRef.Name = ip.Name
+				})).Should(Succeed())
+			}()
+		}
+
+		By("creating machine")
+		_, err := (*drv).CreateMachine(ctx, &driver.CreateMachineRequest{
+			Machine:      newMachine(ns, machineNamePrefix, machineIndex, nil),
+			MachineClass: newMachineClass(v1alpha1.ProviderName, providerSpec),
+			Secret:       providerSecret,
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		By("ensuring that the server claim owns the ip address claims")
+		serverClaim := &metalv1alpha1.ServerClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: ns.Name,
+				Name:      machineName,
+			},
+		}
+		Eventually(Object(serverClaim)).Should(
+			HaveField("Spec.Power", metalv1alpha1.PowerOff),
+		)
+
+		By("patching ServerClaim with ServerRef")
+		Eventually(Update(serverClaim, func() {
+			serverClaim.Spec.ServerRef = &corev1.LocalObjectReference{Name: server.Name}
+		})).Should(Succeed())
+
+		By("initialization of the machine")
+		Eventually(func(g Gomega) {
+			g.Expect((*drv).InitializeMachine(ctx, &driver.InitializeMachineRequest{
+				Machine:      newMachine(ns, machineNamePrefix, machineIndex, nil),
+				MachineClass: newMachineClass(v1alpha1.ProviderName, providerSpec),
+				Secret:       providerSecret,
+			})).Should(Equal(&driver.InitializeMachineResponse{
+				ProviderID: fmt.Sprintf("%s://%s/%s-%d", v1alpha1.ProviderName, ns.Name, machineNamePrefix, machineIndex),
+				NodeName:   machineName,
+			}))
+		}).Should(Succeed())
+
+		for _, ipClaim := range ipClaims {
+			Eventually(Object(ipClaim)).Should(SatisfyAll(
+				HaveField("ObjectMeta.Labels", map[string]string{
+					validation.LabelKeyServerClaimName:      machineName,
+					validation.LabelKeyServerClaimNamespace: ns.Name,
+				}),
+				HaveField("ObjectMeta.OwnerReferences", ContainElement(
+					metav1.OwnerReference{
+						APIVersion: metalv1alpha1.GroupVersion.String(),
+						Kind:       "ServerClaim",
+						Name:       serverClaim.Name,
+						UID:        serverClaim.UID,
+					},
+				)),
+				HaveField("Spec.PoolRef", BeElementOf([]corev1.TypedLocalObjectReference{
+					{
+						APIGroup: ptr.To("ipam.cluster.x-k8s.io"),
+						Kind:     "GlobalInClusterIPPool",
+						Name:     ipClaim.Name,
+					},
+				}),
+				)))
+			DeferCleanup(k8sClient.Delete, ipClaim)
+		}
 
 		By("ensuring the cleanup of the machine")
 		DeferCleanup((*drv).DeleteMachine, &driver.DeleteMachineRequest{
@@ -401,6 +507,64 @@ var _ = Describe("InitializeMachine", func() {
 			Secret:       providerSecret,
 		})
 	})
+
+	It("should fail if the IPAM ref is not set", func(ctx SpecContext) {
+		machineIndex := 6
+		machineName := fmt.Sprintf("%s-%d", machineNamePrefix, machineIndex)
+		By("creating a server")
+		server := &metalv1alpha1.Server{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "test-server",
+			},
+			Spec: metalv1alpha1.ServerSpec{
+				SystemUUID: "12345",
+			},
+		}
+		Expect(k8sClient.Create(ctx, server)).To(Succeed())
+		DeferCleanup(k8sClient.Delete, server)
+
+		providerSpec := maps.Clone(testing.SampleProviderSpec)
+		providerSpec["ipamConfig"] = []v1alpha1.IPAMConfig{
+			{
+				MetadataKey: "foo",
+			},
+		}
+
+		By("creating machine")
+		Expect((*drv).CreateMachine(ctx, &driver.CreateMachineRequest{
+			Machine:      newMachine(ns, machineNamePrefix, machineIndex, nil),
+			MachineClass: newMachineClass(v1alpha1.ProviderName, providerSpec),
+			Secret:       providerSecret,
+		})).To(Equal(&driver.CreateMachineResponse{
+			ProviderID: fmt.Sprintf("%s://%s/%s-%d", v1alpha1.ProviderName, ns.Name, machineNamePrefix, machineIndex),
+			NodeName:   machineName,
+		}))
+
+		By("ensuring that a ServerClaim has been created")
+		serverClaim := &metalv1alpha1.ServerClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      machineName,
+				Namespace: ns.Name,
+			},
+		}
+
+		Eventually(Object(serverClaim)).Should(
+			HaveField("Spec.Power", metalv1alpha1.PowerOff),
+		)
+
+		By("patching ServerClaim with ServerRef")
+		Eventually(Update(serverClaim, func() {
+			serverClaim.Spec.ServerRef = &corev1.LocalObjectReference{Name: server.Name}
+		})).Should(Succeed())
+
+		By("failing if the IPAM ref is not set")
+		_, err := (*drv).InitializeMachine(ctx, &driver.InitializeMachineRequest{
+			Machine:      newMachine(ns, machineNamePrefix, machineIndex, nil),
+			MachineClass: newMachineClass(v1alpha1.ProviderName, providerSpec),
+			Secret:       providerSecret,
+		})
+		Expect(err).Should(MatchError(status.Error(codes.Internal, `failed to create IPAddressClaims: machine codes error: code = [Internal] message = [IPAMRef of an IPAMConfig "foo" is not set]`)))
+	})
 })
 
 var _ = Describe("InitializeMachine with Server name as hostname", func() {
@@ -408,7 +572,7 @@ var _ = Describe("InitializeMachine with Server name as hostname", func() {
 	machineNamePrefix := "machine-init"
 
 	It("should create and initialize a machine", func(ctx SpecContext) {
-		machineIndex := 6
+		machineIndex := 7
 		machineName := fmt.Sprintf("%s-%d", machineNamePrefix, machineIndex)
 		By("creating a server")
 		server := &metalv1alpha1.Server{
