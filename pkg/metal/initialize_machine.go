@@ -55,12 +55,11 @@ func (d *metalDriver) InitializeMachine(ctx context.Context, req *driver.Initial
 		return nil, status.Error(codes.Unavailable, fmt.Sprintf("ServerClaim %s/%s still not bound", d.metalNamespace, req.Machine.Name))
 	}
 
-	err = d.createIPAddressClaims(ctx, req, serverClaim, providerSpec)
-	if err != nil {
+	if err := d.createIPAddressClaims(ctx, req, serverClaim, providerSpec); err != nil {
 		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to create IPAddressClaims: %v", err))
 	}
 
-	addressesMetaData, err := d.collectIPAddressClaimsMetadata(ctx, req, serverClaim, providerSpec)
+	addressesMetaData, err := d.collectIPAddressClaimsMetadata(ctx, req, providerSpec)
 	if err != nil {
 		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to collect IPAddress metadata: %v", err))
 	}
@@ -132,7 +131,7 @@ func (d *metalDriver) createIPAddressClaims(ctx context.Context, req *driver.Ini
 }
 
 // collectIPAddressClaimsMetadata collects the IPAddressClaims metadata for the machine
-func (d *metalDriver) collectIPAddressClaimsMetadata(ctx context.Context, req *driver.InitializeMachineRequest, serverClaim *metalv1alpha1.ServerClaim, providerSpec *apiv1alpha1.ProviderSpec) (map[string]any, error) {
+func (d *metalDriver) collectIPAddressClaimsMetadata(ctx context.Context, req *driver.InitializeMachineRequest, providerSpec *apiv1alpha1.ProviderSpec) (map[string]any, error) {
 	klog.V(3).Info("Collecting IPAddressClaims metadata for machine", "name", req.Machine.Name, "namespace", d.metalNamespace)
 
 	addressesMetaData := make(map[string]any)
