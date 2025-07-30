@@ -40,15 +40,15 @@ type Config struct {
 	DnsServers       []netip.Addr
 }
 
-func File(config *Config) (string, error) {
-	ignitionBase := &map[string]interface{}{}
+func Render(config *Config) (string, error) {
+	ignitionBase := &map[string]any{}
 	if err := yaml.Unmarshal([]byte(IgnitionTemplate), ignitionBase); err != nil {
 		return "", err
 	}
 
 	// if ignition was set in providerSpec merge it with our template
 	if config.Ignition != "" {
-		additional := map[string]interface{}{}
+		additional := map[string]any{}
 
 		if err := yaml.Unmarshal([]byte(config.Ignition), &additional); err != nil {
 			return "", err
@@ -76,12 +76,12 @@ func File(config *Config) (string, error) {
 			dnsServers = append(dnsServers, dnsEntry)
 		}
 
-		dnsConf := map[string]interface{}{
-			"storage": map[string]interface{}{
-				"files": []interface{}{map[string]interface{}{
+		dnsConf := map[string]any{
+			"storage": map[string]any{
+				"files": []any{map[string]any{
 					"path": dnsConfFile,
 					"mode": fileMode,
-					"contents": map[string]interface{}{
+					"contents": map[string]any{
 						"inline": strings.Join(dnsServers, "\n"),
 					},
 				}},
@@ -100,17 +100,18 @@ func File(config *Config) (string, error) {
 			return "", fmt.Errorf("failed to marshal MetaData to JSON: %w", err)
 		}
 
-		metaDataConf := map[string]interface{}{
-			"storage": map[string]interface{}{
-				"files": []interface{}{map[string]interface{}{
+		metaDataConf := map[string]any{
+			"storage": map[string]any{
+				"files": []any{map[string]any{
 					"path": metaDataFile,
 					"mode": fileMode,
-					"contents": map[string]interface{}{
+					"contents": map[string]any{
 						"inline": string(metaDataJSON),
 					},
 				}},
 			},
 		}
+
 		// merge metaData configuration with ignition content
 		if err := mergo.Merge(ignitionBase, metaDataConf, mergo.WithAppendSlice); err != nil {
 			return "", fmt.Errorf("failed to merge metaData configuration with ignition content: %w", err)
@@ -126,6 +127,7 @@ func File(config *Config) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed creating ignition file: %w", err)
 	}
+
 	buf := bytes.NewBufferString("")
 	err = tmpl.Execute(buf, config)
 	if err != nil {
@@ -139,6 +141,7 @@ func File(config *Config) (string, error) {
 
 	return ignition, nil
 }
+
 func renderButane(dataIn []byte) (string, error) {
 	// render by butane to json
 	options := common.TranslateBytesOptions{
