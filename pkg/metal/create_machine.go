@@ -17,6 +17,7 @@ import (
 	"github.com/gardener/machine-controller-manager/pkg/util/provider/machinecodes/codes"
 	"github.com/gardener/machine-controller-manager/pkg/util/provider/machinecodes/status"
 
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -53,7 +54,7 @@ func (d *metalDriver) CreateMachine(ctx context.Context, req *driver.CreateMachi
 		}
 
 		if serverBound {
-			klog.V(3).Info("Server is already boun, removing recreate annotation", "name", serverClaim.Name, "namespace", serverClaim.Namespace)
+			klog.V(3).Info("Server is already bound, removing recreate annotation", "name", serverClaim.Name, "namespace", serverClaim.Namespace)
 			err = d.patchServerClaimWithRecreateAnnotation(ctx, serverClaim, false)
 			if err != nil {
 				return nil, status.Error(codes.Internal, fmt.Sprintf("failed to patch ServerClaim without recreate annotation: %v", err))
@@ -72,6 +73,10 @@ func (d *metalDriver) CreateMachine(ctx context.Context, req *driver.CreateMachi
 	nodeName, err := getNodeName(ctx, d.nodeNamePolicy, serverClaim, d.metalNamespace, d.clientProvider)
 	if err != nil {
 		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to get node name: %v", err))
+	}
+
+	if d.nodeExistsByName(ctx, nodeName) {
+		klog.V(3).Info("Node with the same name already exists in cluster, MCM may terminate and recreate machine", "name", nodeName)
 	}
 
 	return &driver.CreateMachineResponse{
@@ -121,7 +126,7 @@ func (d *metalDriver) createServerClaim(ctx context.Context, req *driver.CreateM
 
 // patchServerClaimWithRecreateAnnotation patches the ServerClaim with an annotation to trigger a machine recreation
 func (d *metalDriver) patchServerClaimWithRecreateAnnotation(ctx context.Context, serverClaim *metalv1alpha1.ServerClaim, addAnnotation bool) error {
-	klog.V(3).Info("Patching ServerClaim with recreate annotation", "name", serverClaim.Name, "namespace", serverClaim.Namespace, "addAnnotation", addAnnotation)
+	klog.V(3).Info("Patching ServerClaim with/-out recreate annotation", "name", serverClaim.Name, "namespace", serverClaim.Namespace, "addAnnotation", addAnnotation)
 
 	if err := d.clientProvider.SyncClient(func(metalClient client.Client) error {
 		baseServerClaim := serverClaim.DeepCopy()
@@ -150,4 +155,27 @@ func (d *metalDriver) ServerIsBound(ctx context.Context, serverClaim *metalv1alp
 	}
 
 	return serverClaim.Spec.ServerRef != nil, nil
+}
+
+func (d *metalDriver) nodeExistsByName(ctx context.Context, nodeName string) bool {
+	nodeFound := false
+
+	if err := d.clientProvider.SyncClient(func(metalClient client.Client) error {
+		nodeList := &corev1.NodeList{}
+		err := metalClient.List(ctx, nodeList)
+		if err != nil {
+			return err
+		}
+		for _, node := range nodeList.Items {
+			if node.Name == nodeName {
+				nodeFound = true
+				break
+			}
+		}
+		return nil
+	}); err != nil {
+		klog.V(3).Info("Failed to list nodes", "error", err)
+	}
+
+	return nodeFound
 }
