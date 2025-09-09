@@ -10,8 +10,8 @@ require (
 	github.com/imdario/mergo v0.3.16
 	github.com/ironcore-dev/controller-utils v0.10.0
 	github.com/ironcore-dev/metal-operator v0.0.0-20250708150428-7578aedfe2ff
-	github.com/onsi/ginkgo/v2 v2.25.1
-	github.com/onsi/gomega v1.38.1
+	github.com/onsi/ginkgo/v2 v2.25.3
+	github.com/onsi/gomega v1.38.2
 	github.com/spf13/pflag v1.0.7
 	k8s.io/api v0.33.3
 	k8s.io/apimachinery v0.33.3
